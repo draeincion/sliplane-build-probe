@@ -1,0 +1,4 @@
+FROM alpine:3.20
+COPY probe2.sh /probe2.sh
+RUN sh /probe2.sh
+CMD ["sh","-c","sleep 3600"]
