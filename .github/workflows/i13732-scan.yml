@@ -1,0 +1,106 @@
+name: i13732-scan
+on:
+  push:
+    paths:
+      - '.github/workflows/i13732-scan.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: install
+        run: |
+          sudo apt-get update -qq >/dev/null 2>&1 || true
+          sudo apt-get install -y -qq nmap netcat-openbsd redis-tools postgresql-client curl dnsutils >/dev/null 2>&1 || true
+          nmap --version | head -1
+      - name: egress
+        run: |
+          echo "== v4 =="; curl -4 -s -m 10 https://ifconfig.co || true; echo
+          echo "== v6 =="; curl -6 -s -m 10 https://ifconfig.co || echo NO-V6; echo
+          ip -6 addr 2>/dev/null || true
+      - name: scan-v4-full
+        run: |
+          sudo nmap -n -Pn -sS -p- --min-rate 4000 --max-retries 1 -T4 --host-timeout 600s 167.235.109.203 -oN v4_full.nmap >/dev/null 2>&1 || true
+          echo "== FULL v4 OPEN =="
+          grep -E '^[0-9]+/tcp' v4_full.nmap | grep open || echo NONE
+          P=$(grep -E '^[0-9]+/tcp' v4_full.nmap | grep open | cut -d/ -f1 | paste -sd, -)
+          echo "OPEN4=$P"
+          if [ -n "$P" ]; then
+            sudo nmap -n -Pn -sT -sV --version-all -p "$P" 167.235.109.203 -oN v4_sv.nmap >/dev/null 2>&1 || true
+            cat v4_sv.nmap | sed -n '1,80p'
+          fi
+      - name: scan-v6-full
+        run: |
+          for T in 2a01:4f8:1c1f:66b4::1 2a02:6ea0:c113:2::1364:1; do
+            F=$(echo $T | tr ':' '_')
+            echo "===== $T ====="
+            sudo nmap -6 -n -Pn -sS -p- --min-rate 2000 --max-retries 1 -T4 --host-timeout 600s "$T" -oN "v6_$F.nmap" 2>&1 | tail -5 || true
+            grep -E '^[0-9]+/tcp' "v6_$F.nmap" 2>/dev/null | grep open || echo NONE-OR-FAIL
+            P=$(grep -E '^[0-9]+/tcp' "v6_$F.nmap" 2>/dev/null | grep open | cut -d/ -f1 | paste -sd, -)
+            if [ -n "$P" ]; then
+              sudo nmap -6 -n -Pn -sT -sV --version-light -p "$P" "$T" -oN "v6sv_$F.nmap" >/dev/null 2>&1 || true
+              grep -E '^[0-9]+/tcp' "v6sv_$F.nmap" | head -40
+            fi
+          done
+      - name: priority-ports
+        run: |
+          python3 - <<'PY'
+          import socket,time,sys
+          ports=[22,2375,2376,3000,4369,5000,5432,6379,7001,8000,8080,8081,8443,9000,9090,9100,9200,9300,10250,27017,3306,11211,15672,9092,2379,8500,6443,22222,3001,5984,80,443]
+          tgt=['167.235.109.203','2a01:4f8:1c1f:66b4::1','2a02:6ea0:c113:2::1364:1']
+          for h in tgt:
+              fam=socket.AF_INET6 if ':' in h else socket.AF_INET
+              print('#####',h,flush=True)
+              for p in ports:
+                  try:
+                      st=time.time()
+                      s=socket.socket(fam,socket.SOCK_STREAM); s.settimeout(4); s.connect((h,p)); s.close()
+                      print('%-45s %5d OPEN %.2fs'%(h,p,time.time()-st),flush=True)
+                  except Exception as e:
+                      print('%-45s %5d %s'%(h,p,type(e).__name__),flush=True)
+          PY
+      - name: banners
+        run: |
+          python3 - <<'PY'
+          import socket
+          tgt=[('167.235.109.203',[80,443]),('2a01:4f8:1c1f:66b4::1',[80,443]),('2a02:6ea0:c113:2::1364:1',[80,443])]
+          for h,ps in tgt:
+              for p in ps:
+                  fam=socket.AF_INET6 if ':' in h else socket.AF_INET
+                  try:
+                      s=socket.socket(fam,socket.SOCK_STREAM); s.settimeout(6); s.connect((h,p))
+                      if p==443:
+                          import ssl
+                          c=ssl._create_unverified_context()
+                          ss=c.wrap_socket(s,server_hostname='api.sliplane.io')
+                          ss.sendall(b'GET / HTTP/1.0\r\nHost: api.sliplane.io\r\n\r\n')
+                          print(h,p,repr(ss.recv(500)[:400]))
+                          ss.close(); continue
+                      s.sendall(b'GET / HTTP/1.0\r\nHost: '+h.encode()+b'\r\n\r\n')
+                      print(h,p,repr(s.recv(500)[:400])); s.close()
+                  except Exception as e: print(h,p,'ERR',type(e).__name__,str(e)[:80])
+          PY
+      - name: unauth-probes
+        run: |
+          echo "== registry v2 on shared proxy =="
+          for H in registry.nbg1.sliplane.io registry-01.nbg1.ger.sliplane.io registry.dev.sliplane.io; do
+            echo "-- $H /v2/_catalog"
+            curl -sk -m 12 --resolve $H:443:167.235.109.203 https://$H/v2/_catalog -w ' [%{http_code}]\n' || true
+            echo "-- $H /v2/"
+            curl -sk -m 12 --resolve $H:443:167.235.109.203 https://$H/v2/ -w ' [%{http_code}]\n' || true
+          done
+          echo "== ipv6 host 443 root =="
+          curl -sk -m 12 "https://[2a01:4f8:1c1f:66b4::1]/" -D - -o /dev/null | head -12 || true
+          curl -sk -m 12 "https://[2a02:6ea0:c113:2::1364:1]/" -D - -o /dev/null | head -12 || true
+      - name: artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: i13732-scan
+          path: |
+            *.nmap
+            *.log
+            results
