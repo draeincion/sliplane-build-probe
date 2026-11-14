@@ -1,0 +1,86 @@
+name: adprobe13999c
+on: [push, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  x:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: vhost2
+        run: |
+          cat > v.py <<'PY'
+          import socket,ssl,hashlib,subprocess
+          IPS=['46.225.104.196','91.98.0.184']
+          HOSTS=['souveraign.io','api.souveraign.io','ans.souveraign.io','medapi.ai','api.medapi.ai','cloud.bp0.de','db-dev.cloud.bp0.de','camunda.cloud.bp0.de','api.sck.dev.cloud.bp0.de','sck.dev.cloud.bp0.de','grafana.cloud.bp0.de','n8n.cloud.bp0.de','registry.cloud.bp0.de','coder.cloud.bp0.de','it-tools.cloud.bp0.de','prometheus.cloud.bp0.de','git.cloud.bp0.de','db.cloud.bp0.de','learnos.cloud.bp0.de','langfuse.cloud.bp0.de','phoenix.cloud.bp0.de','api.medapi.dev.cloud.bp0.de','medapi.dev.cloud.bp0.de']
+          def req(ip,port,sni,host,path='/',to=7,method='GET',hdr=None):
+              try:
+                  ctx=ssl.create_default_context(); ctx.check_hostname=False; ctx.verify_mode=ssl.CERT_NONE
+                  s=socket.create_connection((ip,port),timeout=6); ss=ctx.wrap_socket(s,server_hostname=sni); ss.settimeout(to)
+                  h=f'{method} {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: curl/8.5.0\r\nAccept: */*\r\nConnection: close\r\n'
+                  for k,v in (hdr or {}).items(): h+=f'{k}: {v}\r\n'
+                  h+='\r\n'; ss.sendall(h.encode())
+                  data=b''
+                  try:
+                      while len(data)<20000:
+                          b=ss.recv(6144)
+                          if not b: break
+                          data+=b
+                  except Exception: pass
+                  try: ss.close()
+                  except: pass
+                  t=data.decode('latin1','ignore'); head,_,body=t.partition('\r\n\r\n')
+                  lines=head.split('\r\n'); status=lines[0] if lines else 'NORESP'
+                  hs={}
+                  for l in lines[1:]:
+                      if ':' in l: k,v=l.split(':',1); hs[k.strip().lower()]=v.strip()
+                  return status,hs,body
+              except Exception as e:
+                  return 'ERR %s %s'%(type(e).__name__,str(e)[:50]),{},{}
+          def cinfo(ip,sni):
+              try:
+                  ctx=ssl.create_default_context(); ctx.check_hostname=False; ctx.verify_mode=ssl.CERT_NONE
+                  s=socket.create_connection((ip,443),timeout=6); ss=ctx.wrap_socket(s,server_hostname=sni)
+                  c=ss.getpeercert(binary_form=True); ss.close()
+                  sha=hashlib.sha256(c).hexdigest()
+                  open('/tmp/c.pem','w').write(ssl.DER_cert_to_PEM_cert(c))
+                  txt=subprocess.run(['openssl','x509','-in','/tmp/c.pem','-noout','-subject','-issuer','-serial','-dates','-ext','subjectAltName'],capture_output=True,text=True).stdout.replace('\n',' | ')
+                  return 'sha='+sha[:24]+' '+txt
+              except Exception as e:
+                  return 'ERR %s'%type(e).__name__
+          print('===CERTS===')
+          for h in ['souveraign.io','api.souveraign.io','ans.souveraign.io','medapi.ai','api.medapi.ai','cloud.bp0.de','medapi.dev.cloud.bp0.de','api.medapi.dev.cloud.bp0.de','sck.dev.cloud.bp0.de']:
+              print('CERT',h)
+              print('  46:',cinfo('46.225.104.196',h))
+              print('  91:',cinfo('91.98.0.184',h))
+          print('===VHOST COMPARE===')
+          for h in HOSTS:
+              row=[]
+              for ip in IPS:
+                  st,hs,bd=req(ip,443,h,h,'/')
+                  if isinstance(bd,str):
+                      row.append((ip,st,hs.get('server',''),hs.get('content-type',''),len(bd),hashlib.sha256(bd.encode('latin1')).hexdigest()[:12],hs.get('www-authenticate',''),bd[:80].replace('\r',' ').replace('\n',' ')))
+                  else:
+                      row.append((ip,st,hs.get('server',''),hs.get('content-type',''),'DICT'))
+              print('VHOST',h)
+              for x in row: print('  ',x)
+          print('===PATHS===')
+          paths=['/metrics','/debug/pprof/','/debug/vars','/debug','/health','/healthz','/ready','/live','/version','/api-docs','/api-docs/json','/api/v1/health','/api/v1/gateway-token-jwks/','/openapi.json','/swagger','/swagger-ui','/admin','/dashboard','/api/overview','/api/http/routers','/api/rawdata','/actuator/health','/actuator/env','/server-info','/status','/whoami','/robots.txt']
+          for h in HOSTS:
+              for p in paths:
+                  st,hs,bd=req('46.225.104.196',443,h,h,p,to=6)
+                  if isinstance(bd,str) and not (st.startswith('HTTP/1.1 404') or st.startswith('HTTP/1.1 526') or 'ERR' in st):
+                      print('PATH',h,p,'=>',st,'|',hs.get('server',''),hs.get('www-authenticate',''),hs.get('content-type',''),'|',bd[:120].replace('\r',' ').replace('\n',' '))
+          print('DONE')
+          PY
+          python3 v.py | tee results/vhost2.log
+      - name: dump
+        if: always()
+        run: sed -n '1,500p' results/vhost2.log
+      - name: artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: adprobe13999c
+          path: results/
