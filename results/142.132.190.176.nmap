@@ -1,7 +1,7 @@
 WARNING: Duplicate port number(s) specified.  Are you alert enough to be using Nmap?  Have some coffee or Jolt(tm).
-# Nmap 7.98 scan initiated Sat Nov 14 03:27:42 2026 as: nmap -n -Pn -sS --min-rate 2000 --max-retries 1 --host-timeout 150s -p 22,80,443,2222,22222,3000,3306,4369,5000,5432,5433,5900,6379,7001,8000,8080,8081,8443,8888,9000,9090,9100,9200,9300,10250,11211,15672,1880,2375,2376,27017,32768,51191,9092,10000-11000 -oN results/142.132.190.176.nmap 142.132.190.176
+# Nmap 7.98 scan initiated Sat Nov 14 06:33:43 2026 as: nmap -n -Pn -sS --min-rate 2000 --max-retries 1 --host-timeout 150s -p 22,80,443,2222,22222,3000,3306,4369,5000,5432,5433,5900,6379,7001,8000,8080,8081,8443,8888,9000,9090,9100,9200,9300,10250,11211,15672,1880,2375,2376,27017,32768,51191,9092,10000-11000 -oN results/142.132.190.176.nmap 142.132.190.176
 Nmap scan report for 142.132.190.176
-Host is up (0.099s latency).
+Host is up (0.093s latency).
 Not shown: 1028 filtered tcp ports (no-response)
 PORT      STATE SERVICE
 22/tcp    open  ssh
@@ -11,4 +11,4 @@ PORT      STATE SERVICE
 5432/tcp  open  postgresql
 22222/tcp open  easyengine
 
-# Nmap done at Sat Nov 14 03:27:43 2026 -- 1 IP address (1 host up) scanned in 1.43 seconds
+# Nmap done at Sat Nov 14 06:33:44 2026 -- 1 IP address (1 host up) scanned in 1.36 seconds
