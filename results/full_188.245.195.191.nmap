@@ -1,7 +1,7 @@
-# Nmap 7.98 scan initiated Sat Nov 14 10:06:39 2026 as: nmap -sS -p- -T4 --min-rate 1500 -Pn -n -oN results/full_188.245.195.191.nmap 188.245.195.191
+# Nmap 7.98 scan initiated Sat Nov 14 13:30:12 2026 as: nmap -sS -p- -T4 --min-rate 1500 -Pn -n -oN results/full_188.245.195.191.nmap 188.245.195.191
 Nmap scan report for 188.245.195.191
 Host is up.
 All 65535 scanned ports on 188.245.195.191 are in ignored states.
 Not shown: 65535 filtered tcp ports (no-response)
 
-# Nmap done at Sat Nov 14 10:08:07 2026 -- 1 IP address (1 host up) scanned in 88.02 seconds
+# Nmap done at Sat Nov 14 13:31:40 2026 -- 1 IP address (1 host up) scanned in 88.03 seconds

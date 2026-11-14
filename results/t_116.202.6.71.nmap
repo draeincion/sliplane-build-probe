@@ -1,6 +1,6 @@
-# Nmap 7.98 scan initiated Sat Nov 14 10:08:07 2026 as: nmap -sS -p 22,80,443,5000,5001,8080,8081,1234,2375,2376,3000,9090,10033,10250,22222,8443 -T4 -Pn -n -oN results/t_116.202.6.71.nmap 116.202.6.71
+# Nmap 7.98 scan initiated Sat Nov 14 13:31:40 2026 as: nmap -sS -p 22,80,443,5000,5001,8080,8081,1234,2375,2376,3000,9090,10033,10250,22222,8443 -T4 -Pn -n -oN results/t_116.202.6.71.nmap 116.202.6.71
 Nmap scan report for 116.202.6.71
-Host is up (0.21s latency).
+Host is up (0.16s latency).
 
 PORT      STATE    SERVICE
 22/tcp    filtered ssh
@@ -20,4 +20,4 @@ PORT      STATE    SERVICE
 10250/tcp open     unknown
 22222/tcp open     easyengine
 
-# Nmap done at Sat Nov 14 10:08:10 2026 -- 1 IP address (1 host up) scanned in 2.19 seconds
+# Nmap done at Sat Nov 14 13:31:42 2026 -- 1 IP address (1 host up) scanned in 1.92 seconds
