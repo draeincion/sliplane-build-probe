@@ -1,9 +1,9 @@
-# Nmap 7.98 scan initiated Sat Nov 14 07:42:27 2026 as: nmap -sV -Pn -n -p 80 --version-intensity 5 -oN results/sv_116.202.217.236.nmap 116.202.217.236
+# Nmap 7.98 scan initiated Sat Nov 14 10:08:10 2026 as: nmap -sV -Pn -n -p 80 --version-intensity 5 -oN results/sv_116.202.217.236.nmap 116.202.217.236
 Nmap scan report for 116.202.217.236
-Host is up (0.12s latency).
+Host is up (0.20s latency).
 
 PORT   STATE SERVICE VERSION
 80/tcp open  http    Caddy httpd
 
 Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
-# Nmap done at Sat Nov 14 07:42:34 2026 -- 1 IP address (1 host up) scanned in 6.51 seconds
+# Nmap done at Sat Nov 14 10:08:16 2026 -- 1 IP address (1 host up) scanned in 6.81 seconds

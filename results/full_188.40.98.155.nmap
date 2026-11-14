@@ -1,8 +1,9 @@
-# Nmap 7.98 scan initiated Sat Nov 14 07:39:30 2026 as: nmap -sS -p- -T4 --min-rate 1500 -Pn -n -oN results/full_188.40.98.155.nmap 188.40.98.155
+# Nmap 7.98 scan initiated Sat Nov 14 10:01:52 2026 as: nmap -sS -p- -T4 --min-rate 1500 -Pn -n -oN results/full_188.40.98.155.nmap 188.40.98.155
+Warning: 188.40.98.155 giving up on port because retransmission cap hit (6).
 Nmap scan report for 188.40.98.155
-Host is up (0.13s latency).
-Not shown: 65534 filtered tcp ports (no-response)
+Host is up (0.20s latency).
+Not shown: 35193 filtered tcp ports (no-response), 30341 closed tcp ports (reset)
 PORT   STATE SERVICE
 80/tcp open  http
 
-# Nmap done at Sat Nov 14 07:40:58 2026 -- 1 IP address (1 host up) scanned in 87.60 seconds
+# Nmap done at Sat Nov 14 10:06:39 2026 -- 1 IP address (1 host up) scanned in 287.10 seconds
