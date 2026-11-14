@@ -1,6 +1,6 @@
-# Nmap 7.98 scan initiated Sat Nov 14 07:40:29 2026 as: nmap -n -Pn -sT -sV --version-light --max-retries 1 --host-timeout 180s -p 22,80,443,5432,22222 -oN results/46.224.50.160.sv 46.224.50.160
+# Nmap 7.98 scan initiated Sat Nov 14 10:00:12 2026 as: nmap -n -Pn -sT -sV --version-light --max-retries 1 --host-timeout 180s -p 22,80,443,5432,22222 -oN results/46.224.50.160.sv 46.224.50.160
 Nmap scan report for 46.224.50.160
-Host is up (0.16s latency).
+Host is up (0.12s latency).
 
 PORT      STATE SERVICE    VERSION
 22/tcp    open  ssh        OpenSSH 8.9p1 Ubuntu 3ubuntu0.18 (Ubuntu Linux; protocol 2.0)
@@ -11,4 +11,4 @@ PORT      STATE SERVICE    VERSION
 Service Info: OS: Linux; CPE: cpe:/o:linux:linux_kernel
 
 Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
-# Nmap done at Sat Nov 14 07:40:36 2026 -- 1 IP address (1 host up) scanned in 7.28 seconds
+# Nmap done at Sat Nov 14 10:00:19 2026 -- 1 IP address (1 host up) scanned in 7.02 seconds
