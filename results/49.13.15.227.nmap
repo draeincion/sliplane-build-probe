@@ -1,0 +1,19 @@
+# Nmap 7.98 scan initiated Sat Nov 14 01:42:03 2026 as: nmap -n -Pn -sS --min-rate 2500 --max-retries 1 --host-timeout 480s -p- -oN results/49.13.15.227.nmap 49.13.15.227
+Nmap scan report for 49.13.15.227
+Host is up (0.11s latency).
+Not shown: 65523 filtered tcp ports (no-response)
+PORT      STATE SERVICE
+22/tcp    open  ssh
+80/tcp    open  http
+443/tcp   open  https
+2222/tcp  open  EtherNetIP-1
+6379/tcp  open  redis
+10008/tcp open  octopus
+10291/tcp open  unknown
+10383/tcp open  unknown
+10575/tcp open  unknown
+10674/tcp open  unknown
+10695/tcp open  unknown
+22222/tcp open  easyengine
+
+# Nmap done at Sat Nov 14 01:42:56 2026 -- 1 IP address (1 host up) scanned in 52.70 seconds

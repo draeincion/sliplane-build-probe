@@ -1,0 +1,25 @@
+# Nmap 7.98 scan initiated Sat Nov 14 01:44:41 2026 as: nmap -n -Pn -sS --min-rate 2500 --max-retries 1 --host-timeout 480s -p- -oN results/65.109.253.170.nmap 65.109.253.170
+Warning: 65.109.253.170 giving up on port because retransmission cap hit (1).
+Nmap scan report for 65.109.253.170
+Host is up (0.13s latency).
+Not shown: 32773 closed tcp ports (reset), 32745 filtered tcp ports (no-response)
+PORT      STATE SERVICE
+80/tcp    open  http
+443/tcp   open  https
+10000/tcp open  snet-sensor-mgmt
+10001/tcp open  scp-config
+10002/tcp open  documentum
+10003/tcp open  documentum_s
+10004/tcp open  emcrmirccd
+10005/tcp open  stel
+10012/tcp open  unknown
+10014/tcp open  unknown
+10015/tcp open  unknown
+10016/tcp open  unknown
+10018/tcp open  unknown
+10021/tcp open  unknown
+10022/tcp open  unknown
+10023/tcp open  cefd-vmp
+22222/tcp open  easyengine
+
+# Nmap done at Sat Nov 14 01:45:21 2026 -- 1 IP address (1 host up) scanned in 39.70 seconds

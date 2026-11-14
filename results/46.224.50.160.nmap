@@ -1,0 +1,13 @@
+# Nmap 7.98 scan initiated Sat Nov 14 01:46:13 2026 as: nmap -n -Pn -sS --min-rate 2500 --max-retries 1 --host-timeout 480s -p- -oN results/46.224.50.160.nmap 46.224.50.160
+Nmap scan report for 46.224.50.160
+Host is up (0.11s latency).
+Not shown: 65529 filtered tcp ports (no-response)
+PORT      STATE  SERVICE
+22/tcp    open   ssh
+80/tcp    open   http
+443/tcp   open   https
+5432/tcp  open   postgresql
+6379/tcp  closed redis
+22222/tcp open   easyengine
+
+# Nmap done at Sat Nov 14 01:47:06 2026 -- 1 IP address (1 host up) scanned in 52.71 seconds

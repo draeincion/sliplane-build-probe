@@ -1,0 +1,15 @@
+# Nmap 7.98 scan initiated Sat Nov 14 01:43:48 2026 as: nmap -n -Pn -sS --min-rate 2500 --max-retries 1 --host-timeout 480s -p- -oN results/5.161.255.2.nmap 5.161.255.2
+Nmap scan report for 5.161.255.2
+Host is up (0.020s latency).
+Not shown: 65527 filtered tcp ports (no-response)
+PORT      STATE SERVICE
+22/tcp    open  ssh
+80/tcp    open  http
+443/tcp   open  https
+5222/tcp  open  xmpp-client
+10016/tcp open  unknown
+10541/tcp open  MOS-upper
+10621/tcp open  unknown
+22222/tcp open  easyengine
+
+# Nmap done at Sat Nov 14 01:44:41 2026 -- 1 IP address (1 host up) scanned in 52.66 seconds
