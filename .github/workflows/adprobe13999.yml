@@ -1,0 +1,179 @@
+name: adprobe13999
+on: [push, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  x:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: setup
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq nmap dnsutils openssl jq curl
+          mkdir -p results
+      - name: meta
+        run: |
+          set -x
+          dig +short -x 46.225.104.196 || true
+          dig +short 46.225.104.196 || true
+          curl -s --max-time 15 https://ipinfo.io/46.225.104.196/json | tee results/ipinfo.json || true
+          echo
+          curl -s --max-time 15 https://ipinfo.io/91.98.0.184/json | tee results/ipinfo_91.json || true
+      - name: fullport
+        run: |
+          sudo nmap -n -Pn -sS -p- --min-rate 6000 --max-retries 1 --host-timeout 900s -oN results/full.txt 46.225.104.196
+          grep -E '^[0-9]+/tcp' results/full.txt | awk -F/ '{print $1}' | sort -n | tr '\n' ',' > results/open_ports.txt
+          echo "OPENPORTS=$(cat results/open_ports.txt)"
+      - name: svc
+        run: |
+          P=$(cat results/open_ports.txt | tr -d '\n' | sed 's/,$//')
+          if [ -n "$P" ]; then
+            sudo nmap -n -Pn -sV --version-light --script=banner,http-title,ssl-cert,http-headers -p "$P" -oN results/svc.txt 46.225.104.196 || true
+          fi
+          sed -n '1,400p' results/full.txt
+          echo ====SVC====
+          sed -n '1,500p' results/svc.txt
+      - name: probe
+        run: |
+          cat > p.py <<'PY'
+          import os,socket,ssl,json,time,subprocess,re
+          IPS=['46.225.104.196','91.98.0.184']
+          IP='46.225.104.196'
+          LOG=open('results/probe.log','w')
+          def log(*a):
+              s=' '.join(str(x) for x in a)
+              print(s); LOG.write(s+'\n'); LOG.flush()
+          def tcp(ip,p,to=6):
+              t=time.time()
+              try:
+                  s=socket.create_connection((ip,p),timeout=to); dt=time.time()-t; s.close(); return 'open %.3f'%dt
+              except Exception as e:
+                  return 'ERR %s'%type(e).__name__
+          def banner(ip,p,to=4):
+              try:
+                  s=socket.create_connection((ip,p),timeout=5); s.settimeout(to)
+                  if p in (80,8080,8081,8888,8000,8443,443,3000,5000):
+                      s.sendall(b'GET / HTTP/1.1\r\nHost: %s\r\nUser-Agent: curl/8.5.0\r\nConnection: close\r\n\r\n'%ip.encode())
+                  elif p==6379:
+                      s.sendall(b'PING\r\nINFO server\r\n')
+                  elif p==9200:
+                      s.sendall(b'GET / HTTP/1.0\r\n\r\n')
+                  data=b''
+                  try:
+                      while len(data)<2048:
+                          b=s.recv(512)
+                          if not b: break
+                          data+=b
+                  except Exception: pass
+                  s.close()
+                  return data.decode('latin1','ignore').replace('\r','').replace('\n',' | ')[:400]
+              except Exception as e:
+                  return 'ERR %s %s'%(type(e).__name__,str(e)[:60])
+          def tls(ip,p,sni=None):
+              try:
+                  ctx=ssl.create_default_context(); ctx.check_hostname=False; ctx.verify_mode=ssl.CERT_NONE
+                  s=socket.create_connection((ip,p),timeout=8)
+                  ss=ctx.wrap_socket(s,server_hostname=sni or ip)
+                  cert=ss.getpeercert(binary_form=True)
+                  import hashlib
+                  det=ss.cipher(); ver=ss.version()
+                  ss.close()
+                  der=hashlib.sha256(cert).hexdigest() if cert else ''
+                  txt=''
+                  try:
+                      pem=ssl.DER_cert_to_PEM_cert(cert)
+                      open('/tmp/c.pem','w').write(pem)
+                      txt=subprocess.run(['openssl','x509','-in','/tmp/c.pem','-noout','-subject','-issuer','-dates','-ext','subjectAltName'],capture_output=True,text=True,timeout=10).stdout.replace('\n',' | ')
+                  except Exception as e: txt='certerr %s'%e
+                  return 'sha256=%s ver=%s cipher=%s %s'%(der,ver,det,txt)
+              except Exception as e:
+                  return 'ERR %s %s'%(type(e).__name__,str(e)[:80])
+          def http(ip,p,sni,path='/',to=8,method='GET'):
+              try:
+                  ctx=ssl.create_default_context(); ctx.check_hostname=False; ctx.verify_mode=ssl.CERT_NONE
+                  mode='https' if p in (443,8443,9443,6443,10250,9001,2376) else 'http'
+                  if mode=='https':
+                      s=socket.create_connection((ip,p),timeout=6)
+                      ss=ctx.wrap_socket(s,server_hostname=sni or ip)
+                      enc=lambda x: ss.sendall(x)
+                      rec=lambda: ss.recv(4096)
+                  else:
+                      ss=socket.create_connection((ip,p),timeout=6)
+                      enc=lambda x: ss.sendall(x)
+                      rec=lambda: ss.recv(4096)
+                  ss.settimeout(to)
+                  req=f'{method} {path} HTTP/1.1\r\nHost: {sni}\r\nUser-Agent: curl/8.5.0\r\nAccept: */*\r\nConnection: close\r\n\r\n'
+                  enc(req.encode())
+                  data=b''
+                  try:
+                      while len(data)<6000:
+                          b=rec()
+                          if not b: break
+                          data+=b
+                  except Exception: pass
+                  try: ss.close()
+                  except: pass
+                  t=data.decode('latin1','ignore')
+                  head,_,body=t.partition('\r\n\r\n')
+                  lines=head.split('\r\n')
+                  return (lines[0] if lines else 'NORESP'), head[:600].replace('\r\n',' | '), body[:300].replace('\r\n',' | ')
+              except Exception as e:
+                  return 'ERR %s %s'%(type(e).__name__,str(e)[:70]),'',''
+          try: ports=[int(x) for x in open('results/open_ports.txt').read().strip(',').split(',') if x.strip()]
+          except: ports=[]
+          if not ports: ports=[22,80,443,8080,8081,8443,8888,8088]
+          log('PORTS',ports)
+          log('===BASELINE-CONNECT 46.225.104.196 vs 91.98.0.184===')
+          for p in [22,80,443,8080,8443,8888]:
+              log('CONN',p,'46=',tcp(IP,p),'91=',tcp('91.98.0.184',p))
+          log('===BANNER===')
+          for p in ports: log('BANNER',p,banner(IP,p))
+          log('===TLS===')
+          for p in [443,8443,9443,6443,10250,9001,2376,8080,8888]:
+              if p in ports or p in (443,8443):
+                  log('TLS 46.%d'%p,tls(IP,p,'souveraign.io'))
+                  log('TLS 46.%d IP-SNI'%p,tls(IP,p))
+          log('TLS 91.443',tls('91.98.0.184',443,'souveraign.io'))
+          log('===HTTP vhost on 46===')
+          hosts=['46.225.104.196','souveraign.io','www.souveraign.io','api.souveraign.io','dev.souveraign.io','staging.souveraign.io','admin.souveraign.io','app.souveraign.io','ans.souveraign.io','api.medapi.ai','bp0.de','cloud.bp0.de','api.sck.dev.cloud.bp0.de','sck.dev.cloud.bp0.de']
+          http_ports=[p for p in [80,443,8080,8081,8443,8888,8000,3000,5000,9000] if p in ports]
+          for p in http_ports or [443]:
+              for h in hosts:
+                  st,hd,bd=http(IP,p,h,'/')
+                  log('HTTP %d %s => %s || %s || %s'%(p,h,st,hd[:260],bd[:160]))
+          log('===HTTP baseline 91.98.0.184===')
+          for h in ['souveraign.io','api.souveraign.io','bp0.de','cloud.bp0.de']:
+              st,hd,bd=http('91.98.0.184',443,h,'/')
+              log('HTTP91 443 %s => %s || %s || %s'%(h,st,hd[:200],bd[:120]))
+          log('===UNAUTH CHECKS===')
+          def raw(ip,p,payload,to=5):
+              try:
+                  s=socket.create_connection((ip,p),timeout=5); s.settimeout(to); s.sendall(payload)
+                  d=b''
+                  try:
+                      while len(d)<1500:
+                          b=s.recv(512)
+                          if not b: break
+                          d+=b
+                  except Exception: pass
+                  s.close(); return d.decode('latin1','ignore').replace('\r','').replace('\n',' | ')[:500]
+              except Exception as e: return 'ERR %s %s'%(type(e).__name__,str(e)[:50])
+          checks={2375:b'GET /version HTTP/1.0\r\n\r\n',2376:b'GET /version HTTP/1.0\r\n\r\n',6379:b'PING\r\nINFO\r\n',9200:b'GET /_cat/indices HTTP/1.0\r\n\r\n',8123:b'GET /?query=SELECT%201 HTTP/1.0\r\n\r\n',10250:b'GET /healthz HTTP/1.0\r\n\r\n',2379:b'GET /version HTTP/1.0\r\n\r\n',8500:b'GET /v1/status/leader HTTP/1.0\r\n\r\n',9000:b'GET /minio/health/live HTTP/1.0\r\n\r\n',3306:b'\x00',5432:b'\x00\x00\x00\x08\x04\xd2\x16\x2f',27017:b'\x41\x00\x00\x00',22:b'\n'}
+          for p,pl in checks.items():
+              if p in ports: log('CHECK',p,raw(IP,p,pl))
+          log('DONE')
+          PY
+          python3 p.py || true
+          sed -n '1,400p' results/probe.log
+      - name: artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: adprobe13999
+          path: results/
+      - name: dump
+        if: always()
+        run: |
+          echo ====FULLBEGIN====; sed -n '1,200p' results/full.txt 2>/dev/null; echo ====OPEN====; cat results/open_ports.txt 2>/dev/null; echo; echo ====SVC====; sed -n '1,300p' results/svc.txt 2>/dev/null; echo ====IPINFO====; cat results/ipinfo.json 2>/dev/null; echo; echo ====DONE====
