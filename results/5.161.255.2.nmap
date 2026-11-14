@@ -1,15 +1,15 @@
-# Nmap 7.98 scan initiated Sat Nov 14 01:43:48 2026 as: nmap -n -Pn -sS --min-rate 2500 --max-retries 1 --host-timeout 480s -p- -oN results/5.161.255.2.nmap 5.161.255.2
+WARNING: Duplicate port number(s) specified.  Are you alert enough to be using Nmap?  Have some coffee or Jolt(tm).
+# Nmap 7.98 scan initiated Sat Nov 14 02:01:23 2026 as: nmap -n -Pn -sS --min-rate 2000 --max-retries 1 --host-timeout 150s -p 22,80,443,2222,22222,3000,3306,4369,5000,5432,5433,5900,6379,7001,8000,8080,8081,8443,8888,9000,9090,9100,9200,9300,10250,11211,15672,1880,2375,2376,27017,32768,51191,9092,10000-11000 -oN results/5.161.255.2.nmap 5.161.255.2
 Nmap scan report for 5.161.255.2
-Host is up (0.020s latency).
-Not shown: 65527 filtered tcp ports (no-response)
+Host is up (0.065s latency).
+Not shown: 1027 filtered tcp ports (no-response)
 PORT      STATE SERVICE
 22/tcp    open  ssh
 80/tcp    open  http
 443/tcp   open  https
-5222/tcp  open  xmpp-client
 10016/tcp open  unknown
 10541/tcp open  MOS-upper
 10621/tcp open  unknown
 22222/tcp open  easyengine
 
-# Nmap done at Sat Nov 14 01:44:41 2026 -- 1 IP address (1 host up) scanned in 52.66 seconds
+# Nmap done at Sat Nov 14 02:01:24 2026 -- 1 IP address (1 host up) scanned in 1.28 seconds
