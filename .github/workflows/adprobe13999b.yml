@@ -1,0 +1,109 @@
+name: adprobe13999b
+on: [push, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  x:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: setup
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq dnsutils openssl curl jq && mkdir -p results
+      - name: dns
+        run: |
+          cat > d.py <<'PY'
+          import subprocess,json
+          names=['souveraign.io','www.souveraign.io','api.souveraign.io','ans.souveraign.io','dev.souveraign.io','staging.souveraign.io','admin.souveraign.io','app.souveraign.io','sck.souveraign.io','console.souveraign.io','dashboard.souveraign.io','status.souveraign.io','docs.souveraign.io','traefik.souveraign.io','grafana.souveraign.io','prometheus.souveraign.io','medapi.ai','api.medapi.ai','bp0.de','www.bp0.de','cloud.bp0.de','db-dev.cloud.bp0.de','camunda.cloud.bp0.de','api.sck.dev.cloud.bp0.de','sck.dev.cloud.bp0.de','grafana.cloud.bp0.de','n8n.cloud.bp0.de','registry.cloud.bp0.de','coder.cloud.bp0.de','it-tools.cloud.bp0.de','prometheus.cloud.bp0.de','git.cloud.bp0.de','db.cloud.bp0.de','learnos.cloud.bp0.de','langfuse.cloud.bp0.de','phoenix.cloud.bp0.de','api.medapi.dev.cloud.bp0.de','medapi.dev.cloud.bp0.de']
+          out={}
+          for n in names:
+              try:
+                  a=subprocess.run(['dig','+short','+time=3','+tries=1',n,'A'],capture_output=True,text=True,timeout=8).stdout.split()
+              except Exception: a=[]
+              try:
+                  c=subprocess.run(['dig','+short','+time=3','+tries=1',n,'CNAME'],capture_output=True,text=True,timeout=8).stdout.split()
+              except Exception: c=[]
+              out[n]={'A':a,'CNAME':c}
+              print(n,'A=',a,'CNAME=',c)
+          open('results/dns.json','w').write(json.dumps(out,indent=1))
+          PY
+          python3 d.py
+      - name: intel
+        run: |
+          for ip in 46.225.104.196 91.98.0.184; do echo "== $ip"; curl -s --max-time 20 https://internetdb.shodan.io/$ip | tee results/shodan_$ip.json; echo; done
+          echo == crtsh; curl -s --max-time 40 'https://crt.sh/?q=%25.souveraign.io&output=json' | jq -r '.[].name_value' 2>/dev/null | sort -u | head -60
+      - name: vhosts
+        run: |
+          cat > v.py <<'PY'
+          import socket,ssl,hashlib,json,time
+          IPS=['46.225.104.196','91.98.0.184']
+          HOSTS=['souveraign.io','www.souveraign.io','api.souveraign.io','ans.souveraign.io','dev.souveraign.io','staging.souveraign.io','admin.souveraign.io','app.souveraign.io','sck.souveraign.io','console.souveraign.io','dashboard.souveraign.io','status.souveraign.io','docs.souveraign.io','traefik.souveraign.io','grafana.souveraign.io','prometheus.souveraign.io','medapi.ai','api.medapi.ai','bp0.de','www.bp0.de','cloud.bp0.de','db-dev.cloud.bp0.de','camunda.cloud.bp0.de','api.sck.dev.cloud.bp0.de','sck.dev.cloud.bp0.de','grafana.cloud.bp0.de','n8n.cloud.bp0.de','registry.cloud.bp0.de','coder.cloud.bp0.de','it-tools.cloud.bp0.de','prometheus.cloud.bp0.de','git.cloud.bp0.de','db.cloud.bp0.de','learnos.cloud.bp0.de','langfuse.cloud.bp0.de','phoenix.cloud.bp0.de','api.medapi.dev.cloud.bp0.de','medapi.dev.cloud.bp0.de','whoami.cloud.bp0.de','traefik.cloud.bp0.de']
+          def req(ip,port,sni,host,path='/',to=8,method='GET',hdr=None):
+              try:
+                  ctx=ssl.create_default_context(); ctx.check_hostname=False; ctx.verify_mode=ssl.CERT_NONE
+                  s=socket.create_connection((ip,port),timeout=6)
+                  ss=ctx.wrap_socket(s,server_hostname=sni)
+                  ss.settimeout(to)
+                  h=f'{method} {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: curl/8.5.0\r\nAccept: */*\r\nConnection: close\r\n'
+                  for k,v in (hdr or {}).items(): h+=f'{k}: {v}\r\n'
+                  h+='\r\n'
+                  ss.sendall(h.encode())
+                  data=b''
+                  try:
+                      while len(data)<9000:
+                          b=ss.recv(4096)
+                          if not b: break
+                          data+=b
+                  except Exception: pass
+                  try: ss.close()
+                  except: pass
+                  t=data.decode('latin1','ignore'); head,_,body=t.partition('\r\n\r\n')
+                  lines=head.split('\r\n'); status=lines[0] if lines else 'NORESP'
+                  hs={}
+                  for l in lines[1:]:
+                      if ':' in l: k,v=l.split(':',1); hs[k.strip().lower()]=v.strip()
+                  return status,hs,body
+              except Exception as e:
+                  return 'ERR %s %s'%(type(e).__name__,str(e)[:60]),{},{}
+          def cert(ip,sni):
+              try:
+                  ctx=ssl.create_default_context(); ctx.check_hostname=False; ctx.verify_mode=ssl.CERT_NONE
+                  s=socket.create_connection((ip,443),timeout=6); ss=ctx.wrap_socket(s,server_hostname=sni)
+                  c=ss.getpeercert(binary_form=True); ss.close()
+                  return hashlib.sha256(c).hexdigest()[:20] if c else 'nocert'
+              except Exception as e:
+                  return 'ERR %s'%type(e).__name__
+          print('===CERTS===')
+          for h in HOSTS:
+              print('CERT',h,'46=',cert('46.225.104.196',h),'91=',cert('91.98.0.184',h))
+          print('===VHOST COMPARE===')
+          for h in HOSTS:
+              r={}
+              for ip in IPS:
+                  st,hs,bd=req(ip,443,h,h,'/')
+                  r[ip]=(st,hs.get('server',''),hs.get('content-type',''),len(bd),hashlib.sha256(bd.encode('latin1')).hexdigest()[:12],hs.get('www-authenticate',''),bd[:90].replace('\r',' ').replace('\n',' '))
+              print('VHOST',h)
+              print('  46:',r['46.225.104.196'])
+              print('  91:',r['91.98.0.184'])
+          print('===PATHS===')
+          paths=['/metrics','/debug/pprof/','/debug/vars','/debug','/health','/healthz','/ready','/live','/version','/api-docs','/api-docs/json','/api/v1/health','/api/v1/gateway-token-jwks/','/openapi.json','/swagger','/swagger-ui','/admin','/dashboard','/api/overview','/api/http/routers','/api/rawdata','/traefik/api/overview','/actuator/health','/actuator/env','/server-info','/status','/whoami']
+          test_hosts=['api.souveraign.io','ans.souveraign.io','souveraign.io','cloud.bp0.de','api.sck.dev.cloud.bp0.de','sck.dev.cloud.bp0.de','api.medapi.ai','traefik.souveraign.io','traefik.cloud.bp0.de']
+          for h in test_hosts:
+              for ip in IPS:
+                  for p in paths:
+                      st,hs,bd=req(ip,443,h,h,p,to=6)
+                      if not (st.startswith('HTTP/1.1 404') or st.startswith('ERR SSL') or st.startswith('ERR Timeout')):
+                          print('PATH',ip,h,p,'=>',st,'|',hs.get('server',''),hs.get('www-authenticate',''),'|',bd[:110].replace('\r',' ').replace('\n',' '))
+          print('DONE')
+          PY
+          python3 v.py | tee results/vhost.log
+      - name: dump
+        if: always()
+        run: |
+          echo ====DNS====; cat results/dns.json 2>/dev/null | head -200; echo ====SHODAN46====; cat results/shodan_46.225.104.196.json 2>/dev/null; echo; echo ====SHODAN91====; cat results/shodan_91.98.0.184.json 2>/dev/null; echo; echo ====VHOST====; sed -n '1,400p' results/vhost.log 2>/dev/null
+      - name: artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: adprobe13999b
+          path: results/
