@@ -1,8 +1,7 @@
 WARNING: Duplicate port number(s) specified.  Are you alert enough to be using Nmap?  Have some coffee or Jolt(tm).
-# Nmap 7.98 scan initiated Sat Nov 14 06:33:49 2026 as: nmap -n -Pn -sS --min-rate 2000 --max-retries 1 --host-timeout 150s -p 22,80,443,2222,22222,3000,3306,4369,5000,5432,5433,5900,6379,7001,8000,8080,8081,8443,8888,9000,9090,9100,9200,9300,10250,11211,15672,1880,2375,2376,27017,32768,51191,9092,10000-11000 -oN results/65.109.253.170.nmap 65.109.253.170
-Warning: 65.109.253.170 giving up on port because retransmission cap hit (1).
+# Nmap 7.98 scan initiated Sat Nov 14 07:38:19 2026 as: nmap -n -Pn -sS --min-rate 2000 --max-retries 1 --host-timeout 150s -p 22,80,443,2222,22222,3000,3306,4369,5000,5432,5433,5900,6379,7001,8000,8080,8081,8443,8888,9000,9090,9100,9200,9300,10250,11211,15672,1880,2375,2376,27017,32768,51191,9092,10000-11000 -oN results/65.109.253.170.nmap 65.109.253.170
 Nmap scan report for 65.109.253.170
-Host is up (0.13s latency).
+Host is up (0.17s latency).
 Not shown: 1014 filtered tcp ports (no-response)
 PORT      STATE  SERVICE
 80/tcp    open   http
@@ -26,4 +25,4 @@ PORT      STATE  SERVICE
 32768/tcp closed filenet-tms
 51191/tcp closed unknown
 
-# Nmap done at Sat Nov 14 06:33:51 2026 -- 1 IP address (1 host up) scanned in 1.43 seconds
+# Nmap done at Sat Nov 14 07:38:20 2026 -- 1 IP address (1 host up) scanned in 1.25 seconds
