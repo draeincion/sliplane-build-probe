@@ -1,8 +1,8 @@
-# Nmap 7.98 scan initiated Sat Nov 14 02:49:00 2026 as: nmap -sS -p- -T4 --min-rate 1500 -Pn -n -oN results/full_188.40.98.155.nmap 188.40.98.155
+# Nmap 7.98 scan initiated Sat Nov 14 03:29:00 2026 as: nmap -sS -p- -T4 --min-rate 1500 -Pn -n -oN results/full_188.40.98.155.nmap 188.40.98.155
 Nmap scan report for 188.40.98.155
-Host is up (0.15s latency).
+Host is up (0.096s latency).
 Not shown: 65534 filtered tcp ports (no-response)
 PORT   STATE SERVICE
 80/tcp open  http
 
-# Nmap done at Sat Nov 14 02:50:27 2026 -- 1 IP address (1 host up) scanned in 87.60 seconds
+# Nmap done at Sat Nov 14 03:30:20 2026 -- 1 IP address (1 host up) scanned in 80.80 seconds
