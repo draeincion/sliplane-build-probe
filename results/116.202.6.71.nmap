@@ -1,9 +1,9 @@
 WARNING: Duplicate port number(s) specified.  Are you alert enough to be using Nmap?  Have some coffee or Jolt(tm).
-# Nmap 7.98 scan initiated Sat Nov 14 09:57:16 2026 as: nmap -n -Pn -sS --min-rate 2000 --max-retries 1 --host-timeout 150s -p 22,80,443,2222,22222,3000,3306,4369,5000,5432,5433,5900,6379,7001,8000,8080,8081,8443,8888,9000,9090,9100,9200,9300,10250,11211,15672,1880,2375,2376,27017,32768,51191,9092,10000-11000 -oN results/116.202.6.71.nmap 116.202.6.71
+# Nmap 7.98 scan initiated Sat Nov 14 13:27:31 2026 as: nmap -n -Pn -sS --min-rate 2000 --max-retries 1 --host-timeout 150s -p 22,80,443,2222,22222,3000,3306,4369,5000,5432,5433,5900,6379,7001,8000,8080,8081,8443,8888,9000,9090,9100,9200,9300,10250,11211,15672,1880,2375,2376,27017,32768,51191,9092,10000-11000 -oN results/116.202.6.71.nmap 116.202.6.71
 Warning: 116.202.6.71 giving up on port because retransmission cap hit (1).
 Nmap scan report for 116.202.6.71
-Host is up (0.12s latency).
-Not shown: 777 filtered tcp ports (no-response)
+Host is up (0.14s latency).
+Not shown: 778 filtered tcp ports (no-response)
 PORT      STATE  SERVICE
 80/tcp    open   http
 443/tcp   open   https
@@ -258,9 +258,8 @@ PORT      STATE  SERVICE
 10370/tcp open   unknown
 10371/tcp open   unknown
 10372/tcp open   unknown
-10375/tcp open   unknown
 22222/tcp open   easyengine
 32768/tcp closed filenet-tms
 51191/tcp closed unknown
 
-# Nmap done at Sat Nov 14 09:57:17 2026 -- 1 IP address (1 host up) scanned in 1.15 seconds
+# Nmap done at Sat Nov 14 13:27:32 2026 -- 1 IP address (1 host up) scanned in 1.18 seconds
