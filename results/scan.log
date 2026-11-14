@@ -1,0 +1,73 @@
+===== FULLSCAN 116.202.217.236 =====
+Starting Nmap 7.98 ( https://nmap.org ) at 2026-11-14 02:47 +0000
+Nmap scan report for 116.202.217.236
+Host is up (0.15s latency).
+Not shown: 65534 filtered tcp ports (no-response)
+PORT   STATE SERVICE
+80/tcp open  http
+
+Nmap done: 1 IP address (1 host up) scanned in 87.60 seconds
+===== FULLSCAN 188.40.98.155 =====
+Starting Nmap 7.98 ( https://nmap.org ) at 2026-11-14 02:49 +0000
+Nmap scan report for 188.40.98.155
+Host is up (0.15s latency).
+Not shown: 65534 filtered tcp ports (no-response)
+PORT   STATE SERVICE
+80/tcp open  http
+
+Nmap done: 1 IP address (1 host up) scanned in 87.60 seconds
+===== FULLSCAN 188.245.195.191 =====
+Starting Nmap 7.98 ( https://nmap.org ) at 2026-11-14 02:50 +0000
+Nmap scan report for 188.245.195.191
+Host is up.
+All 65535 scanned ports on 188.245.195.191 are in ignored states.
+Not shown: 65535 filtered tcp ports (no-response)
+
+Nmap done: 1 IP address (1 host up) scanned in 88.07 seconds
+===== TARGETED 116.202.6.71 =====
+Starting Nmap 7.98 ( https://nmap.org ) at 2026-11-14 02:51 +0000
+Nmap scan report for 116.202.6.71
+Host is up (0.15s latency).
+
+PORT      STATE    SERVICE
+22/tcp    filtered ssh
+80/tcp    open     http
+443/tcp   open     https
+1234/tcp  filtered hotline
+2375/tcp  filtered docker
+2376/tcp  filtered docker
+3000/tcp  filtered ppp
+5000/tcp  filtered upnp
+5001/tcp  filtered commplex-link
+8080/tcp  filtered http-proxy
+8081/tcp  filtered blackice-icecap
+8443/tcp  filtered https-alt
+9090/tcp  filtered zeus-admin
+10033/tcp open     unknown
+10250/tcp open     unknown
+22222/tcp open     easyengine
+
+Nmap done: 1 IP address (1 host up) scanned in 1.91 seconds
+===== SERVICE VERSION ON DISCOVERED PORTS =====
+OPEN 116.202.217.236 -> 80
+Starting Nmap 7.98 ( https://nmap.org ) at 2026-11-14 02:51 +0000
+Nmap scan report for 116.202.217.236
+Host is up (0.15s latency).
+
+PORT   STATE SERVICE VERSION
+80/tcp open  http    Caddy httpd
+
+Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 6.65 seconds
+OPEN 188.40.98.155 -> 80
+Starting Nmap 7.98 ( https://nmap.org ) at 2026-11-14 02:52 +0000
+Nmap scan report for 188.40.98.155
+Host is up (0.15s latency).
+
+PORT   STATE SERVICE VERSION
+80/tcp open  http    Caddy httpd
+
+Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 6.66 seconds
+OPEN 188.245.195.191 -> 
+SCANDONE

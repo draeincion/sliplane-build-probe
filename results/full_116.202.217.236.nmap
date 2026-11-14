@@ -1,0 +1,8 @@
+# Nmap 7.98 scan initiated Sat Nov 14 02:47:32 2026 as: nmap -sS -p- -T4 --min-rate 1500 -Pn -n -oN results/full_116.202.217.236.nmap 116.202.217.236
+Nmap scan report for 116.202.217.236
+Host is up (0.15s latency).
+Not shown: 65534 filtered tcp ports (no-response)
+PORT   STATE SERVICE
+80/tcp open  http
+
+# Nmap done at Sat Nov 14 02:49:00 2026 -- 1 IP address (1 host up) scanned in 87.60 seconds
